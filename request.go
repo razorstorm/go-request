@@ -61,7 +61,7 @@ func (hr *HttpRequest) WithPath(path_pattern string, args ...interface{}) *HttpR
 }
 
 func (hr *HttpRequest) WithCombinedPath(components ...string) *HttpRequest {
-	hr.Path = combinePathComponents(components...)
+	hr.Path = CombinePathComponents(components...)
 	return hr
 }
 
@@ -360,7 +360,7 @@ func serializeXmlToReader(object interface{}) io.Reader {
 	return bytes.NewBufferString(string(b))
 }
 
-func combinePathComponents(components ...string) string {
+func CombinePathComponents(components ...string) string {
 	slash := "/"
 	fullPath := ""
 	for index, component := range components {
