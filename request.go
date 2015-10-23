@@ -158,7 +158,7 @@ func (hr *HttpRequest) WithJsonBody(object interface{}) *HttpRequest {
 }
 
 func (hr *HttpRequest) WithXmlBody(object interface{}) *HttpRequest {
-	return hr.WithBody(object, SerializeXml).WithContentType("application/xml")
+	return hr.WithBody(object, serializeXml).WithContentType("application/xml")
 }
 
 func (hr *HttpRequest) WithBody(object interface{}, serialize func(interface{}) string) *HttpRequest {
@@ -350,12 +350,12 @@ func deserializeXmlFromReader(object interface{}, reader io.Reader) error {
 	return decoder.Decode(object)
 }
 
-func SerializeXml(object interface{}) string {
+func serializeXml(object interface{}) string {
 	b, _ := xml.Marshal(object)
 	return string(b)
 }
 
-func SerializeXmlToReader(object interface{}) io.Reader {
+func serializeXmlToReader(object interface{}) io.Reader {
 	b, _ := xml.Marshal(object)
 	return bytes.NewBufferString(string(b))
 }
