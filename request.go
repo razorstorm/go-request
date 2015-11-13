@@ -9,12 +9,50 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
+
+const (
+	HTTPREQUEST_LOG_LEVEL_ERRORS    = 1
+	HTTPREQUEST_LOG_LEVEL_VERBOSE   = 2
+	HTTPREQUEST_LOG_LEVEL_DEBUG     = 3
+	HTTPREQUEST_LOG_LEVEL_OVER_9000 = 9001
+)
+
+//--------------------------------------------------------------------------------
+// Exported Util Functions
+//--------------------------------------------------------------------------------
+
+func CombinePathComponents(components ...string) string {
+	slash := "/"
+	fullPath := ""
+	for index, component := range components {
+		working_component := component
+		if strings.HasPrefix(working_component, slash) {
+			working_component = strings.TrimPrefix(working_component, slash)
+		}
+
+		if strings.HasSuffix(working_component, slash) {
+			working_component = strings.TrimSuffix(working_component, slash)
+		}
+
+		if index != len(components)-1 {
+			fullPath = fullPath + working_component + slash
+		} else {
+			fullPath = fullPath + working_component
+		}
+	}
+	return fullPath
+}
+
+//--------------------------------------------------------------------------------
+// HttpRequest
+//--------------------------------------------------------------------------------
 
 type HttpRequest struct {
 	Scheme            string
@@ -31,6 +69,9 @@ type HttpRequest struct {
 	TLSCertPath       string
 	TLSKeyPath        string
 	Body              string
+
+	Logger   *log.Logger
+	LogLevel int
 }
 
 func NewRequest() *HttpRequest {
@@ -38,6 +79,55 @@ func NewRequest() *HttpRequest {
 	hr.Scheme = "http"
 	hr.Verb = "GET"
 	return &hr
+}
+
+func (hr *HttpRequest) WithLogging() *HttpRequest {
+	hr.LogLevel = HTTPREQUEST_LOG_LEVEL_ERRORS
+	hr.Logger = log.New(os.Stdout, "", 0)
+	return hr
+}
+
+func (hr *HttpRequest) WithLogLevel(logLevel int) *HttpRequest {
+	hr.LogLevel = logLevel
+	return hr
+}
+
+func (hr *HttpRequest) WithLogger(logLevel int, logger *log.Logger) *HttpRequest {
+	hr.LogLevel = logLevel
+	hr.Logger = logger
+	return hr
+}
+
+func (hr *HttpRequest) fatalf(logLevel int, format string, args ...interface{}) {
+	if hr.Logger != nil && logLevel <= hr.LogLevel {
+		prefix := getLoggingPrefix(logLevel)
+		hr.Logger.Fatalf(prefix+format, args...)
+	}
+}
+
+func (hr *HttpRequest) fatalln(logLevel int, args ...interface{}) {
+	if hr.Logger != nil && logLevel <= hr.LogLevel {
+		prefix := getLoggingPrefix(logLevel)
+		message := fmt.Sprint(args...)
+		full_message := fmt.Sprintf("%s%s", prefix, message)
+		hr.Logger.Fatalln(full_message)
+	}
+}
+
+func (hr *HttpRequest) logf(logLevel int, format string, args ...interface{}) {
+	if hr.Logger != nil && logLevel <= hr.LogLevel {
+		prefix := getLoggingPrefix(logLevel)
+		hr.Logger.Printf(prefix+format, args...)
+	}
+}
+
+func (hr *HttpRequest) logln(logLevel int, args ...interface{}) {
+	if hr.Logger != nil && logLevel <= hr.LogLevel {
+		prefix := getLoggingPrefix(logLevel)
+		message := fmt.Sprint(args...)
+		full_message := fmt.Sprintf("%s%s", prefix, message)
+		hr.Logger.Println(full_message)
+	}
 }
 
 func (hr *HttpRequest) WithContentType(content_type string) *HttpRequest {
@@ -224,11 +314,21 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, req_err
 	}
 
-	transport, transportError := httpGetTransport(hr.Timeout, hr.TLSCertPath, hr.TLSKeyPath)
+	transport, transportError := hr.createHttpTransport()
 	if transportError != nil {
 		return nil, transportError
 	}
-	client := &http.Client{Transport: transport}
+
+	var client *http.Client
+	if hr.Timeout != time.Duration(0) {
+		hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Request Has Timeout of %v\n", hr.Timeout)
+		client = &http.Client{Transport: transport, Timeout: hr.Timeout}
+	} else {
+		client = &http.Client{Transport: transport}
+	}
+
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Outgoing request => %v\n", req.URL)
+
 	return client.Do(req)
 }
 
@@ -273,7 +373,24 @@ func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, err
 	return hr.handleFetch(newXmlHandler(success_object), newXmlHandler(error_object))
 }
 
-type httpResponseBodyHandler func([]byte) error
+func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
+	transport := &http.Transport{
+		DisableCompression: false,
+	}
+
+	if !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath) {
+		if cert, err := tls.LoadX509KeyPair(hr.TLSCertPath, hr.TLSKeyPath); err != nil {
+			return nil, err
+		} else {
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			}
+			transport.TLSClientConfig = tlsConfig
+		}
+	}
+
+	return transport, nil
+}
 
 func (hr *HttpRequest) handleFetch(okHandler httpResponseBodyHandler, errorHandler httpResponseBodyHandler) (status int, err error) {
 	res, err := hr.FetchRawResponse()
@@ -293,6 +410,12 @@ func (hr *HttpRequest) handleFetch(okHandler httpResponseBodyHandler, errorHandl
 	}
 	return res.StatusCode, err
 }
+
+//--------------------------------------------------------------------------------
+// Unexported Utility Functions
+//--------------------------------------------------------------------------------
+
+type httpResponseBodyHandler func([]byte) error
 
 func newJsonHandler(object interface{}) httpResponseBodyHandler {
 	return func(body []byte) error {
@@ -359,55 +482,21 @@ func serializeXmlToReader(object interface{}) io.Reader {
 	return bytes.NewBufferString(string(b))
 }
 
-func CombinePathComponents(components ...string) string {
-	slash := "/"
-	fullPath := ""
-	for index, component := range components {
-		working_component := component
-		if strings.HasPrefix(working_component, slash) {
-			working_component = strings.TrimPrefix(working_component, slash)
-		}
-
-		if strings.HasSuffix(working_component, slash) {
-			working_component = strings.TrimSuffix(working_component, slash)
-		}
-
-		if index != len(components)-1 {
-			fullPath = fullPath + working_component + slash
-		} else {
-			fullPath = fullPath + working_component
-		}
-	}
-	return fullPath
+func getLoggingPrefix(logLevel int) string {
+	return fmt.Sprintf("HttpRequest (%s): ", formatLogLevel(logLevel))
 }
 
-func httpGetTransport(timeout time.Duration, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
-	return httpCreateTransport(timeout, tlsCertPath, tlsKeyPath)
-}
-
-func httpCreateTransport(timeout time.Duration, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
-	transport := &http.Transport{
-		DisableCompression: false,
+func formatLogLevel(logLevel int) string {
+	switch logLevel {
+	case HTTPREQUEST_LOG_LEVEL_ERRORS:
+		return "ERRORS"
+	case HTTPREQUEST_LOG_LEVEL_VERBOSE:
+		return "VERBOSE"
+	case HTTPREQUEST_LOG_LEVEL_DEBUG:
+		return "DEBUG"
+	default:
+		return "UNKNOWN"
 	}
-
-	if timeout != time.Duration(0) {
-		transport.Dial = func(network, addr string) (net.Conn, error) {
-			return net.DialTimeout(network, addr, timeout)
-		}
-	}
-
-	if !isEmpty(tlsCertPath) && !isEmpty(tlsKeyPath) {
-		if cert, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath); err != nil {
-			return nil, err
-		} else {
-			tlsConfig := &tls.Config{
-				Certificates: []tls.Certificate{cert},
-			}
-			transport.TLSClientConfig = tlsConfig
-		}
-	}
-
-	return transport, nil
 }
 
 func isEmpty(str string) bool {
