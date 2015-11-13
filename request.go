@@ -17,20 +17,20 @@ import (
 )
 
 type HttpRequest struct {
-	Scheme              string
-	Host                string
-	Path                string
-	QueryString         url.Values
-	Header              http.Header
-	PostData            url.Values
-	BasicAuthUsername   string
-	BasicAuthPassword   string
-	Verb                string
-	ContentType         string
-	TimeoutMilliseconds int64
-	TLSCertPath         string
-	TLSKeyPath          string
-	Body                string
+	Scheme            string
+	Host              string
+	Path              string
+	QueryString       url.Values
+	Header            http.Header
+	PostData          url.Values
+	BasicAuthUsername string
+	BasicAuthPassword string
+	Verb              string
+	ContentType       string
+	Timeout           time.Duration
+	TLSCertPath       string
+	TLSKeyPath        string
+	Body              string
 }
 
 func NewRequest() *HttpRequest {
@@ -112,8 +112,8 @@ func (hr *HttpRequest) WithBasicAuth(username, password string) *HttpRequest {
 	return hr
 }
 
-func (hr *HttpRequest) WithTimeout(timeout_milliseconds int64) *HttpRequest {
-	hr.TimeoutMilliseconds = timeout_milliseconds
+func (hr *HttpRequest) WithTimeout(timeout time.Duration) *HttpRequest {
+	hr.Timeout = timeout
 	return hr
 }
 
@@ -224,12 +224,11 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, req_err
 	}
 
-	transport, transportError := httpGetTransport(hr.TimeoutMilliseconds, hr.TLSCertPath, hr.TLSKeyPath)
+	transport, transportError := httpGetTransport(hr.Timeout, hr.TLSCertPath, hr.TLSKeyPath)
 	if transportError != nil {
 		return nil, transportError
 	}
 	client := &http.Client{Transport: transport}
-
 	return client.Do(req)
 }
 
@@ -287,7 +286,7 @@ func (hr *HttpRequest) handleFetch(okHandler httpResponseBodyHandler, errorHandl
 	if err != nil {
 		return 0, err
 	}
-	if res.StatusCode == 200 {
+	if res.StatusCode == http.StatusOK {
 		err = okHandler(body)
 	} else {
 		err = errorHandler(body)
@@ -308,7 +307,7 @@ func newXmlHandler(object interface{}) httpResponseBodyHandler {
 }
 
 func doNothingWithReader([]byte) error {
-	return nil // do nothing
+	return nil
 }
 
 func deserializeJson(object interface{}, body string) error {
@@ -382,19 +381,18 @@ func CombinePathComponents(components ...string) string {
 	return fullPath
 }
 
-func httpGetTransport(timeoutMilliseconds int64, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
-	return httpCreateTransport(timeoutMilliseconds, tlsCertPath, tlsKeyPath)
+func httpGetTransport(timeout time.Duration, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
+	return httpCreateTransport(timeout, tlsCertPath, tlsKeyPath)
 }
 
-func httpCreateTransport(timeoutMilliseconds int64, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
+func httpCreateTransport(timeout time.Duration, tlsCertPath string, tlsKeyPath string) (*http.Transport, error) {
 	transport := &http.Transport{
 		DisableCompression: false,
 	}
 
-	if timeoutMilliseconds != 0 {
-		timeout_span := time.Duration(timeoutMilliseconds * int64(time.Millisecond))
+	if timeout != time.Duration(0) {
 		transport.Dial = func(network, addr string) (net.Conn, error) {
-			return net.DialTimeout(network, addr, timeout_span)
+			return net.DialTimeout(network, addr, timeout)
 		}
 	}
 
