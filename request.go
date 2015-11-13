@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -321,13 +322,12 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 
 	var client *http.Client
 	if hr.Timeout != time.Duration(0) {
-		hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Request Has Timeout of %v\n", hr.Timeout)
 		client = &http.Client{Transport: transport, Timeout: hr.Timeout}
 	} else {
 		client = &http.Client{Transport: transport}
 	}
 
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Outgoing request => %v\n", req.URL)
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request %v\n", req.URL)
 
 	return client.Do(req)
 }
@@ -348,6 +348,9 @@ func (hr *HttpRequest) FetchString() (string, error) {
 	if read_err != nil {
 		return "", read_err
 	}
+
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response %s", string(bytes))
+
 	return string(bytes), nil
 }
 
@@ -378,6 +381,19 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 		DisableCompression: false,
 	}
 
+	if hr.Timeout != time.Duration(0) {
+		transport.TLSHandshakeTimeout = hr.Timeout
+		transport.ResponseHeaderTimeout = hr.Timeout
+		transport.Dial = (&net.Dialer{
+			Timeout:   hr.Timeout,
+			KeepAlive: 30 * time.Second,
+		}).Dial
+		transport.DialTLS = (&net.Dialer{
+			Timeout:   hr.Timeout,
+			KeepAlive: 30 * time.Second,
+		}).Dial
+	}
+
 	if !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath) {
 		if cert, err := tls.LoadX509KeyPair(hr.TLSCertPath, hr.TLSKeyPath); err != nil {
 			return nil, err
@@ -403,6 +419,8 @@ func (hr *HttpRequest) handleFetch(okHandler httpResponseBodyHandler, errorHandl
 	if err != nil {
 		return 0, err
 	}
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response %s", string(body))
+
 	if res.StatusCode == http.StatusOK {
 		err = okHandler(body)
 	} else {
