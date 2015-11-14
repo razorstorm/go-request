@@ -315,20 +315,23 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, req_err
 	}
 
-	transport, transportError := hr.createHttpTransport()
-	if transportError != nil {
-		return nil, transportError
+	var client *http.Client
+
+	var transport *http.Transport
+	var transport_error error
+	if hr.requiresCustomTransport() {
+		transport, transport_error = hr.createHttpTransport()
+		if transport_error != nil {
+			return nil, transport_error
+		}
+		client.Transport = transport
 	}
 
-	var client *http.Client
 	if hr.Timeout != time.Duration(0) {
-		client = &http.Client{Transport: transport, Timeout: hr.Timeout}
-	} else {
-		client = &http.Client{Transport: transport}
+		client.Timeout = hr.Timeout
 	}
 
 	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request %v\n", req.URL)
-
 	return client.Do(req)
 }
 
@@ -374,6 +377,10 @@ func (hr *HttpRequest) FetchXmlToObject(to_object interface{}) error {
 
 func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, error_object interface{}) (int, error) {
 	return hr.handleFetch(newXmlHandler(success_object), newXmlHandler(error_object))
+}
+
+func (hr *HttpRequest) requiresCustomTransport() bool {
+	return !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)
 }
 
 func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
