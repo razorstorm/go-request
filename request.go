@@ -315,7 +315,7 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, req_err
 	}
 
-	var client *http.Client
+	client := &http.Client{}
 
 	var transport *http.Transport
 	var transport_error error
