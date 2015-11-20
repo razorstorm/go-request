@@ -317,10 +317,8 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 
 	client := &http.Client{}
 
-	var transport *http.Transport
-	var transport_error error
 	if hr.requiresCustomTransport() {
-		transport, transport_error = hr.createHttpTransport()
+		transport, transport_error := hr.createHttpTransport()
 		if transport_error != nil {
 			return nil, transport_error
 		}
