@@ -85,9 +85,9 @@ func (meta *HttpResponseMeta) ParseHttpResponse(res *http.Response) error {
 	return nil
 }
 
-type IncomingResponseHook func(content []byte)
+type IncomingResponseHook func(meta *HttpResponseMeta, content []byte)
 type OutgoingRequestHook func(verb string, url *url.URL)
-type MockedResponseHook func(verb string, url *url.URL) (bool, HttpResponseMeta, []byte, error)
+type MockedResponseHook func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error)
 
 //--------------------------------------------------------------------------------
 // HttpRequest
@@ -422,7 +422,9 @@ func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
 }
 
 func (hr *HttpRequest) FetchString() (string, error) {
+	meta := newHttpResponseMeta()
 	res, err := hr.FetchRawResponse()
+	meta.ParseHttpResponse(res)
 	if err != nil {
 		return "", err
 	}
@@ -433,8 +435,7 @@ func (hr *HttpRequest) FetchString() (string, error) {
 		return "", read_err
 	}
 
-	hr.logResponse(bytes)
-
+	hr.logResponse(meta, bytes)
 	return string(bytes), nil
 }
 
@@ -452,8 +453,7 @@ func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) 
 		return "", meta, read_err
 	}
 
-	hr.logResponse(bytes)
-
+	hr.logResponse(meta, bytes)
 	return string(bytes), meta, nil
 }
 
@@ -530,8 +530,7 @@ func (hr *HttpRequest) doDeserialization(okHandler httpResponseBodyHandler, erro
 		return meta, err
 	}
 
-	hr.logResponse(body)
-
+	hr.logResponse(meta, body)
 	if res.StatusCode == http.StatusOK {
 		err = okHandler(body)
 	} else {
@@ -547,9 +546,9 @@ func (hr *HttpRequest) logRequest(url *url.URL) {
 	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request: %v\n", hr.Verb, url)
 }
 
-func (hr *HttpRequest) logResponse(responseBody []byte) {
+func (hr *HttpRequest) logResponse(meta *HttpResponseMeta, responseBody []byte) {
 	if hr.incomingResponseHook != nil {
-		hr.incomingResponseHook(responseBody)
+		hr.incomingResponseHook(meta, responseBody)
 	}
 	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response: %s", string(responseBody))
 }
