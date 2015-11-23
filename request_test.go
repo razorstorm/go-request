@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -108,8 +109,38 @@ func mockEndpoint(meta *HttpResponseMeta, returnWithObject interface{}, validati
 	})
 }
 
+func mockTlsEndpoint(meta *HttpResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
+	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if validations != nil {
+			validations(r)
+		}
+
+		writeJson(w, meta, returnWithObject)
+	})
+}
+
 func getMockServer(handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewServer(handler)
+}
+
+func getTlsMockServer(handler http.HandlerFunc) *httptest.Server {
+	return httptest.NewTLSServer(handler)
+}
+
+func TestFormatLogLevel(t *testing.T) {
+	assert := assert.New(t)
+
+	errors := formatLogLevel(HTTPREQUEST_LOG_LEVEL_ERRORS)
+	assert.Equal("ERRORS", errors)
+
+	verbose := formatLogLevel(HTTPREQUEST_LOG_LEVEL_VERBOSE)
+	assert.Equal("VERBOSE", verbose)
+
+	debug := formatLogLevel(HTTPREQUEST_LOG_LEVEL_DEBUG)
+	assert.Equal("DEBUG", debug)
+
+	unknown := formatLogLevel(-1)
+	assert.Equal("UNKNOWN", unknown)
 }
 
 func TestCombinePathComponents(t *testing.T) {
@@ -186,6 +217,51 @@ func TestHttpGet(t *testing.T) {
 	assert.Equal(returned_object, test_object)
 }
 
+func TestHttpGetWithExpiringTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("This test involves a 500ms timeout.")
+	}
+
+	assert := assert.New(t)
+	returned_object := newTestObject()
+	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+		time.Sleep(1000 * time.Millisecond)
+	})
+	test_object := testObject{}
+
+	before := time.Now()
+	_, err := NewRequest().AsGet().WithTimeout(250 * time.Millisecond).WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	after := time.Now()
+
+	diff := after.Sub(before)
+	assert.NotNil(err)
+	assert.True(diff < 260*time.Millisecond, "Timeout was ineffective.")
+}
+
+func TestHttpGetWithTimeout(t *testing.T) {
+	assert := assert.New(t)
+	returned_object := newTestObject()
+	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+		assert.Equal("GET", r.Method)
+	})
+	test_object := testObject{}
+	meta, err := NewRequest().AsGet().WithTimeout(250 * time.Millisecond).WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal(returned_object, test_object)
+}
+
+func TestTlsHttpGet(t *testing.T) {
+	assert := assert.New(t)
+	returned_object := newTestObject()
+	ts := mockTlsEndpoint(okMeta(), returned_object, nil)
+	test_object := testObject{}
+	meta, err := NewRequest().AsGet().WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal(returned_object, test_object)
+}
+
 func TestHttpPostWithPostData(t *testing.T) {
 	assert := assert.New(t)
 
@@ -243,4 +319,20 @@ func TestHttpPostWithXmlBody(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returned_object, test_object)
+}
+
+func TestMockedRequests(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := mockEndpoint(errorMeta(), nil, func(r *http.Request) {
+		assert.True(false, "This shouldnt run in a mocked context.")
+	})
+
+	verify_string, meta, err := NewRequest().AsPut().WithRawBody("foobar").WithUrl(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error) {
+		return true, okMeta(), []byte("ok!"), nil
+	}).FetchStringWithMeta()
+
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal("ok!", verify_string)
 }

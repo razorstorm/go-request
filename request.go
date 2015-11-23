@@ -427,20 +427,8 @@ func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
 }
 
 func (hr *HttpRequest) FetchString() (string, error) {
-	res, err := hr.FetchRawResponse()
-	if err != nil {
-		return STRING_EMPTY, err
-	}
-	defer res.Body.Close()
-	meta := newHttpResponseMeta(res)
-
-	bytes, read_err := ioutil.ReadAll(res.Body)
-	if read_err != nil {
-		return STRING_EMPTY, read_err
-	}
-
-	hr.logResponse(meta, bytes)
-	return string(bytes), nil
+	response_string, _, err := hr.FetchStringWithMeta()
+	return response_string, err
 }
 
 func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) {
@@ -511,10 +499,6 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 		transport.TLSHandshakeTimeout = hr.Timeout
 		transport.ResponseHeaderTimeout = hr.Timeout
 		transport.Dial = (&net.Dialer{
-			Timeout:   hr.Timeout,
-			KeepAlive: 30 * time.Second,
-		}).Dial
-		transport.DialTLS = (&net.Dialer{
 			Timeout:   hr.Timeout,
 			KeepAlive: 30 * time.Second,
 		}).Dial
