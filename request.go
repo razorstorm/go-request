@@ -52,6 +52,44 @@ func CombinePathComponents(components ...string) string {
 }
 
 //--------------------------------------------------------------------------------
+// HttpResponseMeta
+//--------------------------------------------------------------------------------
+
+func newHttpResponseMeta() *HttpResponseMeta {
+	return &HttpResponseMeta{}
+}
+
+type HttpResponseMeta struct {
+	StatusCode      int
+	ContentLength   int64
+	ContentEncoding string
+	ContentType     string
+	Headers         http.Header
+}
+
+func (meta *HttpResponseMeta) ParseHttpResponse(res *http.Response) error {
+	meta.StatusCode = res.StatusCode
+	meta.ContentLength = res.ContentLength
+
+	content_type_header := res.Header["content-type"]
+	if content_type_header != nil && len(content_type_header) > 0 {
+		meta.ContentType = strings.Join(content_type_header, ";")
+	}
+
+	content_encoding_header := res.Header["content-encoding"]
+	if content_encoding_header != nil && len(content_encoding_header) > 0 {
+		meta.ContentEncoding = strings.Join(content_encoding_header, ";")
+	}
+
+	meta.Headers = res.Header
+	return nil
+}
+
+type IncomingResponseHook func(content []byte)
+type OutgoingRequestHook func(verb string, url *url.URL)
+type MockedResponseHook func(verb string, url *url.URL) (bool, HttpResponseMeta, []byte, error)
+
+//--------------------------------------------------------------------------------
 // HttpRequest
 //--------------------------------------------------------------------------------
 
@@ -73,6 +111,10 @@ type HttpRequest struct {
 
 	Logger   *log.Logger
 	LogLevel int
+
+	incomingResponseHook IncomingResponseHook
+	outgoingRequestHook  OutgoingRequestHook
+	mockHook             MockedResponseHook
 }
 
 func NewRequest() *HttpRequest {
@@ -80,6 +122,21 @@ func NewRequest() *HttpRequest {
 	hr.Scheme = "http"
 	hr.Verb = "GET"
 	return &hr
+}
+
+func (hr *HttpRequest) WithMockedResponse(hook MockedResponseHook) *HttpRequest {
+	hr.mockHook = hook
+	return hr
+}
+
+func (hr *HttpRequest) WithIncomingResponseHook(hook IncomingResponseHook) *HttpRequest {
+	hr.incomingResponseHook = hook
+	return hr
+}
+
+func (hr *HttpRequest) WithOutgoingRequestHook(hook OutgoingRequestHook) *HttpRequest {
+	hr.outgoingRequestHook = hook
+	return hr
 }
 
 func (hr *HttpRequest) WithLogging() *HttpRequest {
@@ -315,8 +372,21 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, req_err
 	}
 
-	client := &http.Client{}
+	if hr.mockHook != nil {
+		did_mock_response, mocked_meta, mocked_response, mocked_response_err := hr.mockHook(hr.Verb, req.URL)
+		if did_mock_response {
+			buff := bytes.NewBuffer(mocked_response)
+			res := http.Response{}
+			buff_len := buff.Len()
+			res.Body = ioutil.NopCloser(buff)
+			res.ContentLength = int64(buff_len)
+			res.Header = mocked_meta.Headers
+			res.StatusCode = mocked_meta.StatusCode
+			return &res, mocked_response_err
+		}
+	}
 
+	client := &http.Client{}
 	if hr.requiresCustomTransport() {
 		transport, transport_error := hr.createHttpTransport()
 		if transport_error != nil {
@@ -329,13 +399,26 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 		client.Timeout = hr.Timeout
 	}
 
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request %v\n", req.URL)
+	hr.logRequest(req.URL)
 	return client.Do(req)
 }
 
 func (hr *HttpRequest) Execute() error {
-	_, err := hr.FetchRawResponse()
+	res, err := hr.FetchRawResponse()
+	if res != nil && res.Body != nil {
+		res.Body.Close()
+	}
 	return err
+}
+
+func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
+	meta := newHttpResponseMeta()
+	res, err := hr.FetchRawResponse()
+	if res != nil && res.Body != nil {
+		res.Body.Close()
+	}
+	meta.ParseHttpResponse(res)
+	return meta, err
 }
 
 func (hr *HttpRequest) FetchString() (string, error) {
@@ -350,31 +433,50 @@ func (hr *HttpRequest) FetchString() (string, error) {
 		return "", read_err
 	}
 
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response %s", string(bytes))
+	hr.logResponse(bytes)
 
 	return string(bytes), nil
 }
 
+func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) {
+	meta := newHttpResponseMeta()
+	res, err := hr.FetchRawResponse()
+	meta.ParseHttpResponse(res)
+	if err != nil {
+		return "", meta, err
+	}
+	defer res.Body.Close()
+
+	bytes, read_err := ioutil.ReadAll(res.Body)
+	if read_err != nil {
+		return "", meta, read_err
+	}
+
+	hr.logResponse(bytes)
+
+	return string(bytes), meta, nil
+}
+
 func (hr *HttpRequest) FetchJsonToObject(to_object interface{}) error {
-	_, err := hr.handleFetch(newJsonHandler(to_object), doNothingWithReader)
+	_, err := hr.doDeserialization(newJsonHandler(to_object), doNothingWithReader)
 	return err
 }
 
-func (hr *HttpRequest) FetchJsonToObjectWithError(success_object interface{}, error_object interface{}) (int, error) {
-	return hr.handleFetch(newJsonHandler(success_object), newJsonHandler(error_object))
+func (hr *HttpRequest) FetchJsonToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
+	return hr.doDeserialization(newJsonHandler(success_object), newJsonHandler(error_object))
 }
 
-func (hr *HttpRequest) FetchJsonError(error_object interface{}) (int, error) {
-	return hr.handleFetch(doNothingWithReader, newJsonHandler(error_object))
+func (hr *HttpRequest) FetchJsonError(error_object interface{}) (*HttpResponseMeta, error) {
+	return hr.doDeserialization(doNothingWithReader, newJsonHandler(error_object))
 }
 
 func (hr *HttpRequest) FetchXmlToObject(to_object interface{}) error {
-	_, err := hr.handleFetch(newXmlHandler(to_object), doNothingWithReader)
+	_, err := hr.doDeserialization(newXmlHandler(to_object), doNothingWithReader)
 	return err
 }
 
-func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, error_object interface{}) (int, error) {
-	return hr.handleFetch(newXmlHandler(success_object), newXmlHandler(error_object))
+func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
+	return hr.doDeserialization(newXmlHandler(success_object), newXmlHandler(error_object))
 }
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
@@ -413,25 +515,43 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 	return transport, nil
 }
 
-func (hr *HttpRequest) handleFetch(okHandler httpResponseBodyHandler, errorHandler httpResponseBodyHandler) (status int, err error) {
+func (hr *HttpRequest) doDeserialization(okHandler httpResponseBodyHandler, errorHandler httpResponseBodyHandler) (*HttpResponseMeta, error) {
+	meta := newHttpResponseMeta()
 	res, err := hr.FetchRawResponse()
+	meta.ParseHttpResponse(res)
+
 	if err != nil {
-		return 0, err
+		return meta, err
 	}
 	defer res.Body.Close()
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return 0, err
+		return meta, err
 	}
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response %s", string(body))
+
+	hr.logResponse(body)
 
 	if res.StatusCode == http.StatusOK {
 		err = okHandler(body)
 	} else {
 		err = errorHandler(body)
 	}
-	return res.StatusCode, err
+	return meta, err
+}
+
+func (hr *HttpRequest) logRequest(url *url.URL) {
+	if hr.outgoingRequestHook != nil {
+		hr.outgoingRequestHook(hr.Verb, url)
+	}
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request: %v\n", hr.Verb, url)
+}
+
+func (hr *HttpRequest) logResponse(responseBody []byte) {
+	if hr.incomingResponseHook != nil {
+		hr.incomingResponseHook(responseBody)
+	}
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Response: %s", string(responseBody))
 }
 
 //--------------------------------------------------------------------------------
