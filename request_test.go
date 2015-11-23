@@ -15,6 +15,14 @@ import (
 	"github.com/blendlabs/go-assert"
 )
 
+type statusObject struct {
+	Status string `json:"status" xml:"status"`
+}
+
+func statusOkObject() statusObject {
+	return statusObject{"ok!"}
+}
+
 type testObject struct {
 	Id           int       `json:"id" xml:"id"`
 	Name         string    `json:"name" xml:"name"`
@@ -88,14 +96,69 @@ func mockEchoEndpoint(meta *HttpResponseMeta) *httptest.Server {
 	})
 }
 
-func mockEndpoint(meta *HttpResponseMeta, returnWithObject interface{}) *httptest.Server {
+type validationFunc func(r *http.Request)
+
+func mockEndpoint(meta *HttpResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if validations != nil {
+			validations(r)
+		}
+
 		writeJson(w, meta, returnWithObject)
 	})
 }
 
 func getMockServer(handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewServer(handler)
+}
+
+func TestCombinePathComponents(t *testing.T) {
+	assert := assert.New(t)
+
+	brian_is_a_pedant := CombinePathComponents("foo")
+	assert.Equal("foo", brian_is_a_pedant)
+
+	brian_is_a_pedant2 := CombinePathComponents("/foo")
+	assert.Equal("foo", brian_is_a_pedant2)
+
+	brian_is_a_pedant3 := CombinePathComponents("foo/")
+	assert.Equal("foo", brian_is_a_pedant3)
+
+	brian_is_a_pedant4 := CombinePathComponents("/foo/")
+	assert.Equal("foo", brian_is_a_pedant4)
+
+	dual_test1 := CombinePathComponents("foo", "bar")
+	assert.Equal("foo/bar", dual_test1)
+
+	dual_test2 := CombinePathComponents("foo/", "bar")
+	assert.Equal("foo/bar", dual_test2)
+
+	dual_test3 := CombinePathComponents("foo/", "/bar")
+	assert.Equal("foo/bar", dual_test3)
+
+	dual_test4 := CombinePathComponents("/foo/", "/bar")
+	assert.Equal("foo/bar", dual_test4)
+
+	dual_test5 := CombinePathComponents("/foo/", "/bar/")
+	assert.Equal("foo/bar", dual_test5)
+
+	test1 := CombinePathComponents("foo", "bar", "baz")
+	assert.Equal("foo/bar/baz", test1)
+
+	test2 := CombinePathComponents("foo/", "bar/", "baz")
+	assert.Equal("foo/bar/baz", test2)
+
+	test3 := CombinePathComponents("foo/", "bar/", "baz/")
+	assert.Equal("foo/bar/baz", test3)
+
+	test4 := CombinePathComponents("foo/", "/bar/", "/baz")
+	assert.Equal("foo/bar/baz", test4)
+
+	test5 := CombinePathComponents("/foo/", "/bar/", "/baz")
+	assert.Equal("foo/bar/baz", test5)
+
+	test6 := CombinePathComponents("/foo/", "/bar/", "/baz/")
+	assert.Equal("foo/bar/baz", test6)
 }
 
 func TestCreateHttpRequestWithUrl(t *testing.T) {
@@ -115,12 +178,45 @@ func TestCreateHttpRequestWithUrl(t *testing.T) {
 func TestHttpGet(t *testing.T) {
 	assert := assert.New(t)
 	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object)
+	ts := mockEndpoint(okMeta(), returned_object, nil)
 	test_object := testObject{}
 	meta, err := NewRequest().AsGet().WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returned_object, test_object)
+}
+
+func TestHttpPostWithPostData(t *testing.T) {
+	assert := assert.New(t)
+
+	returned_object := newTestObject()
+	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+		value := r.PostFormValue("foo")
+		assert.Equal("bar", value)
+	})
+
+	test_object := testObject{}
+	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithPostData("foo", "bar").FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal(returned_object, test_object)
+}
+
+func TestHttpPostWithBasicAuth(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := mockEndpoint(okMeta(), statusOkObject(), func(r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		assert.True(ok)
+		assert.Equal("test_user", username)
+		assert.Equal("test_password", password)
+	})
+
+	test_object := statusObject{}
+	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal("ok!", test_object.Status)
 }
 
 func TestHttpPostWithJsonBody(t *testing.T) {
