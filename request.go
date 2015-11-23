@@ -55,19 +55,13 @@ func CombinePathComponents(components ...string) string {
 // HttpResponseMeta
 //--------------------------------------------------------------------------------
 
-func newHttpResponseMeta() *HttpResponseMeta {
-	return &HttpResponseMeta{}
-}
+func newHttpResponseMeta(res *http.Response) *HttpResponseMeta {
+	meta := &HttpResponseMeta{}
 
-type HttpResponseMeta struct {
-	StatusCode      int
-	ContentLength   int64
-	ContentEncoding string
-	ContentType     string
-	Headers         http.Header
-}
+	if res == nil {
+		return meta
+	}
 
-func (meta *HttpResponseMeta) ParseHttpResponse(res *http.Response) error {
 	meta.StatusCode = res.StatusCode
 	meta.ContentLength = res.ContentLength
 
@@ -82,9 +76,18 @@ func (meta *HttpResponseMeta) ParseHttpResponse(res *http.Response) error {
 	}
 
 	meta.Headers = res.Header
-	return nil
+	return meta
 }
 
+type HttpResponseMeta struct {
+	StatusCode      int
+	ContentLength   int64
+	ContentEncoding string
+	ContentType     string
+	Headers         http.Header
+}
+
+type ResponseBodyHandler func([]byte) error
 type IncomingResponseHook func(meta *HttpResponseMeta, content []byte)
 type OutgoingRequestHook func(verb string, url *url.URL)
 type MockedResponseHook func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error)
@@ -412,23 +415,22 @@ func (hr *HttpRequest) Execute() error {
 }
 
 func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
-	meta := newHttpResponseMeta()
+
 	res, err := hr.FetchRawResponse()
 	if res != nil && res.Body != nil {
 		res.Body.Close()
 	}
-	meta.ParseHttpResponse(res)
+	meta := newHttpResponseMeta(res)
 	return meta, err
 }
 
 func (hr *HttpRequest) FetchString() (string, error) {
-	meta := newHttpResponseMeta()
 	res, err := hr.FetchRawResponse()
-	meta.ParseHttpResponse(res)
 	if err != nil {
 		return "", err
 	}
 	defer res.Body.Close()
+	meta := newHttpResponseMeta(res)
 
 	bytes, read_err := ioutil.ReadAll(res.Body)
 	if read_err != nil {
@@ -440,9 +442,8 @@ func (hr *HttpRequest) FetchString() (string, error) {
 }
 
 func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) {
-	meta := newHttpResponseMeta()
 	res, err := hr.FetchRawResponse()
-	meta.ParseHttpResponse(res)
+	meta := newHttpResponseMeta(res)
 	if err != nil {
 		return "", meta, err
 	}
@@ -453,30 +454,31 @@ func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) 
 		return "", meta, read_err
 	}
 
+	meta.ContentLength = int64(len(bytes))
 	hr.logResponse(meta, bytes)
 	return string(bytes), meta, nil
 }
 
 func (hr *HttpRequest) FetchJsonToObject(to_object interface{}) error {
-	_, err := hr.doDeserialization(newJsonHandler(to_object), doNothingWithReader)
+	_, err := hr.deserialize(newJsonHandler(to_object), nil)
 	return err
 }
 
 func (hr *HttpRequest) FetchJsonToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.doDeserialization(newJsonHandler(success_object), newJsonHandler(error_object))
+	return hr.deserialize(newJsonHandler(success_object), newJsonHandler(error_object))
 }
 
 func (hr *HttpRequest) FetchJsonError(error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.doDeserialization(doNothingWithReader, newJsonHandler(error_object))
+	return hr.deserialize(nil, newJsonHandler(error_object))
 }
 
 func (hr *HttpRequest) FetchXmlToObject(to_object interface{}) error {
-	_, err := hr.doDeserialization(newXmlHandler(to_object), doNothingWithReader)
+	_, err := hr.deserialize(newXmlHandler(to_object), nil)
 	return err
 }
 
 func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.doDeserialization(newXmlHandler(success_object), newXmlHandler(error_object))
+	return hr.deserialize(newXmlHandler(success_object), newXmlHandler(error_object))
 }
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
@@ -515,10 +517,9 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 	return transport, nil
 }
 
-func (hr *HttpRequest) doDeserialization(okHandler httpResponseBodyHandler, errorHandler httpResponseBodyHandler) (*HttpResponseMeta, error) {
-	meta := newHttpResponseMeta()
+func (hr *HttpRequest) deserialize(okHandler ResponseBodyHandler, errorHandler ResponseBodyHandler) (*HttpResponseMeta, error) {
 	res, err := hr.FetchRawResponse()
-	meta.ParseHttpResponse(res)
+	meta := newHttpResponseMeta(res)
 
 	if err != nil {
 		return meta, err
@@ -557,22 +558,16 @@ func (hr *HttpRequest) logResponse(meta *HttpResponseMeta, responseBody []byte) 
 // Unexported Utility Functions
 //--------------------------------------------------------------------------------
 
-type httpResponseBodyHandler func([]byte) error
-
-func newJsonHandler(object interface{}) httpResponseBodyHandler {
+func newJsonHandler(object interface{}) ResponseBodyHandler {
 	return func(body []byte) error {
 		return deserializeJson(object, string(body))
 	}
 }
 
-func newXmlHandler(object interface{}) httpResponseBodyHandler {
+func newXmlHandler(object interface{}) ResponseBodyHandler {
 	return func(body []byte) error {
 		return deserializeXml(object, string(body))
 	}
-}
-
-func doNothingWithReader([]byte) error {
-	return nil
 }
 
 func deserializeJson(object interface{}, body string) error {
