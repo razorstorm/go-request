@@ -324,7 +324,7 @@ func (hr *HttpRequest) createUrl() url.URL {
 	return working_url
 }
 
-func (hr *HttpRequest) createHttpRequest() (*http.Request, error) {
+func (hr *HttpRequest) CreateHttpRequest() (*http.Request, error) {
 	working_url := hr.createUrl()
 
 	if hr.Body != "" && hr.PostData != nil && len(hr.PostData) > 0 {
@@ -367,7 +367,7 @@ func (hr *HttpRequest) createHttpRequest() (*http.Request, error) {
 }
 
 func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
-	req, req_err := hr.createHttpRequest()
+	req, req_err := hr.CreateHttpRequest()
 	if req_err != nil {
 		return nil, req_err
 	}
