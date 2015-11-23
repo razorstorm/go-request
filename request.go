@@ -479,7 +479,7 @@ func (hr *HttpRequest) FetchXmlToObjectWithErrorHandler(successObject interface{
 	return hr.deserializeWithErrorHandler(newXmlHandler(successObject), newXmlHandler(error_object))
 }
 
-func (hr *HttpRequest) FetchObjectWithSerializer(destination interface{}, serializer ResponseBodyHandler) (*HttpResponseMeta, error) {
+func (hr *HttpRequest) FetchObjectWithSerializer(serializer ResponseBodyHandler) (*HttpResponseMeta, error) {
 	meta, response_err := hr.deserialize(func(body []byte) error {
 		return serializer(body)
 	})
