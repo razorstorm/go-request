@@ -23,6 +23,8 @@ const (
 	HTTPREQUEST_LOG_LEVEL_VERBOSE   = 2
 	HTTPREQUEST_LOG_LEVEL_DEBUG     = 3
 	HTTPREQUEST_LOG_LEVEL_OVER_9000 = 9001
+
+	STRING_EMPTY = ""
 )
 
 //--------------------------------------------------------------------------------
@@ -352,11 +354,11 @@ func (hr *HttpRequest) CreateHttpRequest() (*http.Request, error) {
 		}
 	}
 
-	if hr.BasicAuthUsername != "" {
+	if !isEmpty(hr.BasicAuthUsername) {
 		req.SetBasicAuth(hr.BasicAuthUsername, hr.BasicAuthPassword)
 	}
 
-	if hr.ContentType != "" {
+	if !isEmpty(hr.ContentType) {
 		req.Header.Set("Content-Type", hr.ContentType)
 	}
 
@@ -427,14 +429,14 @@ func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
 func (hr *HttpRequest) FetchString() (string, error) {
 	res, err := hr.FetchRawResponse()
 	if err != nil {
-		return "", err
+		return STRING_EMPTY, err
 	}
 	defer res.Body.Close()
 	meta := newHttpResponseMeta(res)
 
 	bytes, read_err := ioutil.ReadAll(res.Body)
 	if read_err != nil {
-		return "", read_err
+		return STRING_EMPTY, read_err
 	}
 
 	hr.logResponse(meta, bytes)
@@ -445,13 +447,13 @@ func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) 
 	res, err := hr.FetchRawResponse()
 	meta := newHttpResponseMeta(res)
 	if err != nil {
-		return "", meta, err
+		return STRING_EMPTY, meta, err
 	}
 	defer res.Body.Close()
 
 	bytes, read_err := ioutil.ReadAll(res.Body)
 	if read_err != nil {
-		return "", meta, read_err
+		return STRING_EMPTY, meta, read_err
 	}
 
 	meta.ContentLength = int64(len(bytes))
@@ -459,26 +461,26 @@ func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) 
 	return string(bytes), meta, nil
 }
 
-func (hr *HttpRequest) FetchJsonToObject(to_object interface{}) error {
-	_, err := hr.deserialize(newJsonHandler(to_object), nil)
+func (hr *HttpRequest) FetchJsonToObject(destination interface{}) error {
+	_, err := hr.Deserialize(newJsonHandler(destination))
 	return err
 }
 
-func (hr *HttpRequest) FetchJsonToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.deserialize(newJsonHandler(success_object), newJsonHandler(error_object))
+func (hr *HttpRequest) FetchJsonToObjectWithErrorHandler(successObject interface{}, errorObject interface{}) (*HttpResponseMeta, error) {
+	return hr.DeserializeWithErrorHandler(newJsonHandler(successObject), newJsonHandler(errorObject))
 }
 
-func (hr *HttpRequest) FetchJsonError(error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.deserialize(nil, newJsonHandler(error_object))
+func (hr *HttpRequest) FetchJsonError(errorObject interface{}) (*HttpResponseMeta, error) {
+	return hr.DeserializeWithErrorHandler(nil, newJsonHandler(errorObject))
 }
 
-func (hr *HttpRequest) FetchXmlToObject(to_object interface{}) error {
-	_, err := hr.deserialize(newXmlHandler(to_object), nil)
+func (hr *HttpRequest) FetchXmlToObject(destination interface{}) error {
+	_, err := hr.Deserialize(newXmlHandler(destination))
 	return err
 }
 
-func (hr *HttpRequest) FetchXmlToObjectWithError(success_object interface{}, error_object interface{}) (*HttpResponseMeta, error) {
-	return hr.deserialize(newXmlHandler(success_object), newXmlHandler(error_object))
+func (hr *HttpRequest) FetchXmlToObjectWithErrorHandler(successObject interface{}, error_object interface{}) (*HttpResponseMeta, error) {
+	return hr.DeserializeWithErrorHandler(newXmlHandler(successObject), newXmlHandler(error_object))
 }
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
@@ -517,7 +519,7 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 	return transport, nil
 }
 
-func (hr *HttpRequest) deserialize(okHandler ResponseBodyHandler, errorHandler ResponseBodyHandler) (*HttpResponseMeta, error) {
+func (hr *HttpRequest) Deserialize(handler ResponseBodyHandler) (*HttpResponseMeta, error) {
 	res, err := hr.FetchRawResponse()
 	meta := newHttpResponseMeta(res)
 
@@ -531,10 +533,33 @@ func (hr *HttpRequest) deserialize(okHandler ResponseBodyHandler, errorHandler R
 		return meta, err
 	}
 
+	meta.ContentLength = int64(len(body))
 	hr.logResponse(meta, body)
-	if res.StatusCode == http.StatusOK {
+	if handler != nil {
+		err = handler(body)
+	}
+	return meta, err
+}
+
+func (hr *HttpRequest) DeserializeWithErrorHandler(okHandler ResponseBodyHandler, errorHandler ResponseBodyHandler) (*HttpResponseMeta, error) {
+	res, err := hr.FetchRawResponse()
+	meta := newHttpResponseMeta(res)
+
+	if err != nil {
+		return meta, err
+	}
+	defer res.Body.Close()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return meta, err
+	}
+
+	meta.ContentLength = int64(len(body))
+	hr.logResponse(meta, body)
+	if res.StatusCode == http.StatusOK && okHandler != nil {
 		err = okHandler(body)
-	} else {
+	} else if errorHandler != nil {
 		err = errorHandler(body)
 	}
 	return meta, err
