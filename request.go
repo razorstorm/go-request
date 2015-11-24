@@ -105,6 +105,7 @@ type HttpRequest struct {
 	QueryString       url.Values
 	Header            http.Header
 	PostData          url.Values
+	Cookies           []*http.Cookie
 	BasicAuthUsername string
 	BasicAuthPassword string
 	Verb              string
@@ -251,6 +252,14 @@ func (hr *HttpRequest) WithQueryString(field string, value string) *HttpRequest 
 	return hr
 }
 
+func (hr *HttpRequest) WithCookie(cookie *http.Cookie) *HttpRequest {
+	if hr.Cookies == nil {
+		hr.Cookies = []*http.Cookie{}
+	}
+	hr.Cookies = append(hr.Cookies, cookie)
+	return hr
+}
+
 func (hr *HttpRequest) WithPostData(field string, value string) *HttpRequest {
 	if hr.PostData == nil {
 		hr.PostData = url.Values{}
@@ -365,6 +374,13 @@ func (hr *HttpRequest) CreateHttpRequest() (*http.Request, error) {
 	for key, values := range hr.Header {
 		for _, value := range values {
 			req.Header.Set(key, value)
+		}
+	}
+
+	if hr.Cookies != nil {
+		for i := 0; i < len(hr.Cookies); i++ {
+			cookie := hr.Cookies[i]
+			req.AddCookie(cookie)
 		}
 	}
 

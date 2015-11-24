@@ -295,6 +295,31 @@ func TestHttpPostWithBasicAuth(t *testing.T) {
 	assert.Equal("ok!", test_object.Status)
 }
 
+func TestHttpPostWithCookies(t *testing.T) {
+	assert := assert.New(t)
+
+	cookie := &http.Cookie{
+		Name:     "test",
+		Value:    "foosballs",
+		Secure:   true,
+		HttpOnly: true,
+		Path:     "/test",
+		Expires:  time.Now().UTC().AddDate(0, 0, 30),
+	}
+
+	ts := mockEndpoint(okMeta(), statusOkObject(), func(r *http.Request) {
+		read_cookie, read_cookie_err := r.Cookie("test")
+		assert.Nil(read_cookie_err)
+		assert.Equal(cookie.Value, read_cookie.Value)
+	})
+
+	test_object := statusObject{}
+	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithCookie(cookie).WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal("ok!", test_object.Status)
+}
+
 func TestHttpPostWithJsonBody(t *testing.T) {
 	assert := assert.New(t)
 
