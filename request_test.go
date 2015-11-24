@@ -295,6 +295,21 @@ func TestHttpPostWithBasicAuth(t *testing.T) {
 	assert.Equal("ok!", test_object.Status)
 }
 
+func TestHttpPostWithHeader(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := mockEndpoint(okMeta(), statusOkObject(), func(r *http.Request) {
+		value := r.Header.Get("test_header")
+		assert.Equal(value, "foosballs")
+	})
+
+	test_object := statusObject{}
+	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithHeader("test_header", "foosballs").WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal("ok!", test_object.Status)
+}
+
 func TestHttpPostWithCookies(t *testing.T) {
 	assert := assert.New(t)
 
