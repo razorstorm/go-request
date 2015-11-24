@@ -556,8 +556,10 @@ func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler
 
 	meta.ContentLength = int64(len(body))
 	hr.logResponse(meta, body)
-	if res.StatusCode == http.StatusOK && okHandler != nil {
-		err = okHandler(body)
+	if res.StatusCode == http.StatusOK {
+		if okHandler != nil {
+			err = okHandler(body)
+		}
 	} else if errorHandler != nil {
 		err = errorHandler(body)
 	}
