@@ -115,6 +115,8 @@ type HttpRequest struct {
 	TLSKeyPath        string
 	Body              string
 
+	Label string
+
 	Logger   *log.Logger
 	LogLevel int
 
@@ -128,6 +130,11 @@ func NewRequest() *HttpRequest {
 	hr.Scheme = "http"
 	hr.Verb = "GET"
 	return &hr
+}
+
+func (hr *HttpRequest) WithLabel(label string) *HttpRequest {
+	hr.Label = label
+	return hr
 }
 
 func (hr *HttpRequest) WithMockedResponse(hook MockedResponseHook) *HttpRequest {
