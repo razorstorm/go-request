@@ -512,11 +512,8 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 	}
 
 	if hr.Timeout != time.Duration(0) {
-		transport.TLSHandshakeTimeout = hr.Timeout
-		transport.ResponseHeaderTimeout = hr.Timeout
 		transport.Dial = (&net.Dialer{
-			Timeout:   hr.Timeout,
-			KeepAlive: 30 * time.Second,
+			Timeout: hr.Timeout,
 		}).Dial
 	}
 
