@@ -91,7 +91,7 @@ type HttpResponseMeta struct {
 
 type ResponseBodyHandler func([]byte) error
 type IncomingResponseHook func(meta *HttpResponseMeta, content []byte)
-type OutgoingRequestHook func(verb string, url *url.URL)
+type OutgoingRequestHook func(req *HttpRequest, verb string, url *url.URL)
 type MockedResponseHook func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error)
 
 //--------------------------------------------------------------------------------
@@ -588,7 +588,7 @@ func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler
 
 func (hr *HttpRequest) logRequest(url *url.URL) {
 	if hr.outgoingRequestHook != nil {
-		hr.outgoingRequestHook(hr.Verb, url)
+		hr.outgoingRequestHook(hr, hr.Verb, url)
 	}
 	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request  ==> %s %v\n", hr.Verb, url)
 }
