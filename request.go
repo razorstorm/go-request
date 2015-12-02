@@ -91,7 +91,8 @@ type HttpResponseMeta struct {
 
 type ResponseBodyHandler func([]byte) error
 type IncomingResponseHook func(meta *HttpResponseMeta, content []byte)
-type OutgoingRequestHook func(req *HttpRequest, verb string, url *url.URL)
+type OutgoingRequestHook func(verb string, url *url.URL)
+type OutgoingRequestBodyHook func(body []byte)
 type MockedResponseHook func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error)
 
 //--------------------------------------------------------------------------------
@@ -120,9 +121,10 @@ type HttpRequest struct {
 	Logger   *log.Logger
 	LogLevel int
 
-	incomingResponseHook IncomingResponseHook
-	outgoingRequestHook  OutgoingRequestHook
-	mockHook             MockedResponseHook
+	incomingResponseHook    IncomingResponseHook
+	outgoingRequestHook     OutgoingRequestHook
+	outgoingRequestBodyHook OutgoingRequestBodyHook
+	mockHook                MockedResponseHook
 }
 
 func NewRequest() *HttpRequest {
@@ -149,6 +151,11 @@ func (hr *HttpRequest) WithIncomingResponseHook(hook IncomingResponseHook) *Http
 
 func (hr *HttpRequest) WithOutgoingRequestHook(hook OutgoingRequestHook) *HttpRequest {
 	hr.outgoingRequestHook = hook
+	return hr
+}
+
+func (hr *HttpRequest) WithOutgoingRequestBodyHook(hook OutgoingRequestBodyHook) *HttpRequest {
+	hr.outgoingRequestBodyHook = hook
 	return hr
 }
 
@@ -598,7 +605,10 @@ func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler
 
 func (hr *HttpRequest) logRequest(url *url.URL) {
 	if hr.outgoingRequestHook != nil {
-		hr.outgoingRequestHook(hr, hr.Verb, url)
+		hr.outgoingRequestHook(hr.Verb, url)
+	}
+	if hr.outgoingRequestBodyHook != nil {
+		hr.outgoingRequestBodyHook([]byte(hr.RequestBody()))
 	}
 	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request  ==> %s %v\n", hr.Verb, url)
 }
