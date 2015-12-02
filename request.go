@@ -345,6 +345,16 @@ func (hr *HttpRequest) createUrl() url.URL {
 	return working_url
 }
 
+func (hr *HttpRequest) RequestBody() string {
+	if hr.Body != "" {
+		return hr.Body
+	} else if hr.PostData != nil {
+		return hr.PostData.Encode()
+	} else {
+		return STRING_EMPTY
+	}
+}
+
 func (hr *HttpRequest) CreateHttpRequest() (*http.Request, error) {
 	working_url := hr.createUrl()
 
