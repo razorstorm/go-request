@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,6 +15,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/blendlabs/go-exception"
 )
 
 const (
@@ -366,23 +367,29 @@ func (hr *HttpRequest) CreateHttpRequest() (*http.Request, error) {
 	working_url := hr.createUrl()
 
 	if hr.Body != "" && hr.PostData != nil && len(hr.PostData) > 0 {
-		return nil, errors.New("Cant set both a body and have post data!")
+		return nil, exception.New("Cant set both a body and have post data!")
 	}
 
 	var req *http.Request
 	if hr.Body != "" {
-		body_req, _ := http.NewRequest(hr.Verb, working_url.String(), bytes.NewBufferString(hr.Body))
+		body_req, body_req_err := http.NewRequest(hr.Verb, working_url.String(), bytes.NewBufferString(hr.Body))
+		if body_req_err != nil {
+			return nil, exception.Wrap(body_req_err)
+		}
 		req = body_req
 	} else {
 		if hr.PostData != nil {
 			post_req, post_req_error := http.NewRequest(hr.Verb, working_url.String(), bytes.NewBufferString(hr.PostData.Encode()))
 			if post_req_error != nil {
-				return nil, post_req_error
+				return nil, exception.Wrap(post_req_error)
 			}
 			req = post_req
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		} else {
-			empty_req, _ := http.NewRequest(hr.Verb, working_url.String(), nil)
+			empty_req, empty_req_err := http.NewRequest(hr.Verb, working_url.String(), nil)
+			if empty_req_err != nil {
+				return nil, exception.Wrap(empty_req_err)
+			}
 			req = empty_req
 		}
 	}
@@ -427,7 +434,7 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 			res.ContentLength = int64(buff_len)
 			res.Header = mocked_meta.Headers
 			res.StatusCode = mocked_meta.StatusCode
-			return &res, mocked_response_err
+			return &res, exception.Wrap(mocked_response_err)
 		}
 	}
 
@@ -435,7 +442,7 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 	if hr.requiresCustomTransport() {
 		transport, transport_error := hr.createHttpTransport()
 		if transport_error != nil {
-			return nil, transport_error
+			return nil, exception.Wrap(transport_error)
 		}
 		client.Transport = transport
 	}
@@ -445,43 +452,50 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 	}
 
 	hr.logRequest(req.URL)
-	return client.Do(req)
+
+	res, resErr := client.Do(req)
+	return res, exception.Wrap(resErr)
 }
 
 func (hr *HttpRequest) Execute() error {
 	res, err := hr.FetchRawResponse()
 	if res != nil && res.Body != nil {
-		res.Body.Close()
+		closeErr := res.Body.Close()
+		if closeErr != nil {
+			return exception.WrapMany(exception.Wrap(err), exception.Wrap(closeErr))
+		}
 	}
-	return err
+	return exception.Wrap(err)
 }
 
 func (hr *HttpRequest) ExecuteWithMeta() (*HttpResponseMeta, error) {
-
 	res, err := hr.FetchRawResponse()
 	if res != nil && res.Body != nil {
-		res.Body.Close()
+		closeErr := res.Body.Close()
+		if closeErr != nil {
+			return nil, exception.WrapMany(exception.Wrap(err), exception.Wrap(closeErr))
+		}
 	}
 	meta := newHttpResponseMeta(res)
-	return meta, err
+	return meta, exception.Wrap(err)
 }
 
 func (hr *HttpRequest) FetchString() (string, error) {
 	response_string, _, err := hr.FetchStringWithMeta()
-	return response_string, err
+	return response_string, exception.Wrap(err)
 }
 
 func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) {
 	res, err := hr.FetchRawResponse()
 	meta := newHttpResponseMeta(res)
 	if err != nil {
-		return STRING_EMPTY, meta, err
+		return STRING_EMPTY, meta, exception.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	bytes, read_err := ioutil.ReadAll(res.Body)
 	if read_err != nil {
-		return STRING_EMPTY, meta, read_err
+		return STRING_EMPTY, meta, exception.Wrap(read_err)
 	}
 
 	meta.ContentLength = int64(len(bytes))
@@ -543,7 +557,7 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 
 	if !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath) {
 		if cert, err := tls.LoadX509KeyPair(hr.TLSCertPath, hr.TLSKeyPath); err != nil {
-			return nil, err
+			return nil, exception.Wrap(err)
 		} else {
 			tlsConfig := &tls.Config{
 				Certificates: []tls.Certificate{cert},
@@ -560,13 +574,13 @@ func (hr *HttpRequest) deserialize(handler ResponseBodyHandler) (*HttpResponseMe
 	meta := newHttpResponseMeta(res)
 
 	if err != nil {
-		return meta, err
+		return meta, exception.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return meta, err
+		return meta, exception.Wrap(err)
 	}
 
 	meta.ContentLength = int64(len(body))
@@ -574,7 +588,7 @@ func (hr *HttpRequest) deserialize(handler ResponseBodyHandler) (*HttpResponseMe
 	if handler != nil {
 		err = handler(body)
 	}
-	return meta, err
+	return meta, exception.Wrap(err)
 }
 
 func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler, errorHandler ResponseBodyHandler) (*HttpResponseMeta, error) {
@@ -582,13 +596,13 @@ func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler
 	meta := newHttpResponseMeta(res)
 
 	if err != nil {
-		return meta, err
+		return meta, exception.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return meta, err
+		return meta, exception.Wrap(err)
 	}
 
 	meta.ContentLength = int64(len(body))
@@ -600,7 +614,7 @@ func (hr *HttpRequest) deserializeWithErrorHandler(okHandler ResponseBodyHandler
 	} else if errorHandler != nil {
 		err = errorHandler(body)
 	}
-	return meta, err
+	return meta, exception.Wrap(err)
 }
 
 func (hr *HttpRequest) logRequest(url *url.URL) {
@@ -638,19 +652,21 @@ func newXmlHandler(object interface{}) ResponseBodyHandler {
 
 func deserializeJson(object interface{}, body string) error {
 	decoder := json.NewDecoder(bytes.NewBufferString(body))
-	return decoder.Decode(object)
+	decodeErr := decoder.Decode(object)
+	return exception.Wrap(decodeErr)
 }
 
 func deserializeJsonFromReader(object interface{}, body io.Reader) error {
 	decoder := json.NewDecoder(body)
-	return decoder.Decode(object)
+	decodeErr := decoder.Decode(object)
+	return exception.Wrap(decodeErr)
 }
 
 func deserializePostBody(object interface{}, body io.ReadCloser) error {
 	defer body.Close()
 	bodyBytes, err := ioutil.ReadAll(body)
 	if err != nil {
-		return err
+		return exception.Wrap(err)
 	}
 
 	return deserializeJson(object, string(bodyBytes))
