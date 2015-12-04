@@ -1,5 +1,7 @@
 # Go-Request
 
+[![Build Status](https://travis-ci.org/blendlabs/go-request.svg?branch=master)](https://travis-ci.org/blendlabs/go-request)
+
 This is a simple convenience library for making service requests and deserializing the results to objects either from JSON or from XML.
 
 ## Usage
