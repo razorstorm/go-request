@@ -624,7 +624,7 @@ func (hr *HttpRequest) logRequest(url *url.URL) {
 	if hr.outgoingRequestBodyHook != nil {
 		hr.outgoingRequestBodyHook([]byte(hr.RequestBody()))
 	}
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request  ==> %s %v\n", hr.Verb, url)
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request  ==> %s %s\n", hr.Verb, url.String())
 }
 
 func (hr *HttpRequest) logResponse(meta *HttpResponseMeta, responseBody []byte) {
