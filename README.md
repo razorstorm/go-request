@@ -1,4 +1,5 @@
-# Go-Request
+go-request
+==========
 
 [![Build Status](https://travis-ci.org/blendlabs/go-request.svg?branch=master)](https://travis-ci.org/blendlabs/go-request)
 
