@@ -64,6 +64,7 @@ type HttpResponseMeta struct {
 }
 
 type ResponseBodyHandler func([]byte) error
+type CreateTransportHook func(host url.URL, transport *http.Transport)
 type IncomingResponseHook func(meta *HttpResponseMeta, content []byte)
 type OutgoingRequestHook func(verb string, url *url.URL)
 type OutgoingRequestBodyHook func(body []byte)
@@ -97,6 +98,7 @@ type HttpRequest struct {
 
 	transport *http.Transport
 
+	createTransportHook     CreateTransportHook
 	incomingResponseHook    IncomingResponseHook
 	outgoingRequestHook     OutgoingRequestHook
 	outgoingRequestBodyHook OutgoingRequestBodyHook
@@ -112,6 +114,11 @@ func NewRequest() *HttpRequest {
 
 func (hr *HttpRequest) WithLabel(label string) *HttpRequest {
 	hr.Label = label
+	return hr
+}
+
+func (hr *HttpRequest) WithCreateTransportHook(hook CreateTransportHook) *HttpRequest {
+	hr.createTransportHook = hook
 	return hr
 }
 
@@ -521,7 +528,7 @@ func (hr *HttpRequest) FetchObjectWithSerializer(serializer ResponseBodyHandler)
 }
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
-	return !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)
+	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) || hr.transport != nil
 }
 
 func (hr *HttpRequest) getHttpTransport() (*http.Transport, error) {
@@ -552,6 +559,10 @@ func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
 			}
 			transport.TLSClientConfig = tlsConfig
 		}
+	}
+
+	if hr.createTransportHook != nil {
+		hr.createTransportHook(hr.createUrl(), transport)
 	}
 
 	return transport, nil
