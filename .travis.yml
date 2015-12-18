@@ -15,6 +15,7 @@ notifications:
 before_script:
   - go get -u github.com/blendlabs/go-assert
   - go get -u github.com/blendlabs/go-exception
+  - go get -u github.com/blendlabs/go-util
 
 script: 
   - go test
