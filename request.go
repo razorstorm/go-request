@@ -90,6 +90,7 @@ type HttpRequest struct {
 	TLSCertPath       string
 	TLSKeyPath        string
 	Body              string
+	KeepAlive         bool
 
 	Label string
 
@@ -109,6 +110,7 @@ func NewRequest() *HttpRequest {
 	hr := HttpRequest{}
 	hr.Scheme = "http"
 	hr.Verb = "GET"
+	hr.KeepAlive = false
 	return &hr
 }
 
@@ -193,6 +195,12 @@ func (hr *HttpRequest) logln(logLevel int, args ...interface{}) {
 
 func (hr *HttpRequest) WithTransport(transport *http.Transport) *HttpRequest {
 	hr.transport = transport
+	return hr
+}
+
+func (hr *HttpRequest) WithKeepAlives() *HttpRequest {
+	hr.KeepAlive = true
+	hr = hr.WithHeader("Connection", "keep-alive")
 	return hr
 }
 
@@ -528,11 +536,12 @@ func (hr *HttpRequest) FetchObjectWithSerializer(serializer ResponseBodyHandler)
 }
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
-	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) || hr.transport != nil
+	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) || hr.transport != nil || hr.createTransportHook != nil
 }
 
 func (hr *HttpRequest) getHttpTransport() (*http.Transport, error) {
 	if hr.transport != nil {
+		hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Service Request ==> Using Provided Transport\n")
 		return hr.transport, nil
 	} else {
 		return hr.createHttpTransport()
@@ -540,15 +549,26 @@ func (hr *HttpRequest) getHttpTransport() (*http.Transport, error) {
 }
 
 func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {
+	hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Service Request ==> Creating Custom Transport\n")
 	transport := &http.Transport{
 		DisableCompression: false,
+		DisableKeepAlives:  !hr.KeepAlive,
 	}
 
+	dialer := &net.Dialer{}
 	if hr.Timeout != time.Duration(0) {
-		transport.Dial = (&net.Dialer{
-			Timeout: hr.Timeout,
-		}).Dial
+		dialer.Timeout = hr.Timeout
 	}
+	if hr.KeepAlive {
+		hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Service Request ==> Transport Enabled For `keep-alive` %v\n", 30*time.Second)
+		dialer.KeepAlive = 30 * time.Second
+	}
+
+	loggedDialer := func(network, address string) (net.Conn, error) {
+		hr.logf(HTTPREQUEST_LOG_LEVEL_DEBUG, "Service Request ==> Transport Is Dialing %s\n", address)
+		return dialer.Dial(network, address)
+	}
+	transport.Dial = loggedDialer
 
 	if !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath) {
 		if cert, err := tls.LoadX509KeyPair(hr.TLSCertPath, hr.TLSKeyPath); err != nil {
@@ -623,7 +643,7 @@ func (hr *HttpRequest) logRequest(url *url.URL) {
 	if hr.outgoingRequestBodyHook != nil {
 		hr.outgoingRequestBodyHook([]byte(hr.RequestBody()))
 	}
-	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request  ==> %s %s\n", hr.Verb, url.String())
+	hr.logf(HTTPREQUEST_LOG_LEVEL_VERBOSE, "Service Request ==> %s %s\n", hr.Verb, url.String())
 }
 
 func (hr *HttpRequest) logResponse(meta *HttpResponseMeta, responseBody []byte) {
