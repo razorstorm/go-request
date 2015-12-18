@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/blendlabs/go-exception"
+	"github.com/blendlabs/go-util"
 )
 
 const (
@@ -24,35 +25,7 @@ const (
 	HTTPREQUEST_LOG_LEVEL_VERBOSE   = 2
 	HTTPREQUEST_LOG_LEVEL_DEBUG     = 3
 	HTTPREQUEST_LOG_LEVEL_OVER_9000 = 9001
-
-	STRING_EMPTY = ""
 )
-
-//--------------------------------------------------------------------------------
-// Exported Util Functions
-//--------------------------------------------------------------------------------
-
-func CombinePathComponents(components ...string) string {
-	slash := "/"
-	fullPath := ""
-	for index, component := range components {
-		working_component := component
-		if strings.HasPrefix(working_component, slash) {
-			working_component = strings.TrimPrefix(working_component, slash)
-		}
-
-		if strings.HasSuffix(working_component, slash) {
-			working_component = strings.TrimSuffix(working_component, slash)
-		}
-
-		if index != len(components)-1 {
-			fullPath = fullPath + working_component + slash
-		} else {
-			fullPath = fullPath + working_component
-		}
-	}
-	return fullPath
-}
 
 //--------------------------------------------------------------------------------
 // HttpResponseMeta
@@ -121,6 +94,8 @@ type HttpRequest struct {
 
 	Logger   *log.Logger
 	LogLevel int
+
+	transport *http.Transport
 
 	incomingResponseHook    IncomingResponseHook
 	outgoingRequestHook     OutgoingRequestHook
@@ -209,6 +184,11 @@ func (hr *HttpRequest) logln(logLevel int, args ...interface{}) {
 	}
 }
 
+func (hr *HttpRequest) WithTransport(transport *http.Transport) *HttpRequest {
+	hr.transport = transport
+	return hr
+}
+
 func (hr *HttpRequest) WithContentType(content_type string) *HttpRequest {
 	hr.ContentType = content_type
 	return hr
@@ -230,7 +210,7 @@ func (hr *HttpRequest) WithPath(path_pattern string, args ...interface{}) *HttpR
 }
 
 func (hr *HttpRequest) WithCombinedPath(components ...string) *HttpRequest {
-	hr.Path = CombinePathComponents(components...)
+	hr.Path = util.CombinePathComponents(components...)
 	return hr
 }
 
@@ -359,7 +339,7 @@ func (hr *HttpRequest) RequestBody() string {
 	} else if hr.PostData != nil {
 		return hr.PostData.Encode()
 	} else {
-		return STRING_EMPTY
+		return util.EMPTY
 	}
 }
 
@@ -440,7 +420,7 @@ func (hr *HttpRequest) FetchRawResponse() (*http.Response, error) {
 
 	client := &http.Client{}
 	if hr.requiresCustomTransport() {
-		transport, transport_error := hr.createHttpTransport()
+		transport, transport_error := hr.getHttpTransport()
 		if transport_error != nil {
 			return nil, exception.Wrap(transport_error)
 		}
@@ -489,13 +469,13 @@ func (hr *HttpRequest) FetchStringWithMeta() (string, *HttpResponseMeta, error) 
 	res, err := hr.FetchRawResponse()
 	meta := newHttpResponseMeta(res)
 	if err != nil {
-		return STRING_EMPTY, meta, exception.Wrap(err)
+		return util.EMPTY, meta, exception.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	bytes, read_err := ioutil.ReadAll(res.Body)
 	if read_err != nil {
-		return STRING_EMPTY, meta, exception.Wrap(read_err)
+		return util.EMPTY, meta, exception.Wrap(read_err)
 	}
 
 	meta.ContentLength = int64(len(bytes))
@@ -542,6 +522,14 @@ func (hr *HttpRequest) FetchObjectWithSerializer(serializer ResponseBodyHandler)
 
 func (hr *HttpRequest) requiresCustomTransport() bool {
 	return !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)
+}
+
+func (hr *HttpRequest) getHttpTransport() (*http.Transport, error) {
+	if hr.transport != nil {
+		return hr.transport, nil
+	} else {
+		return hr.createHttpTransport()
+	}
 }
 
 func (hr *HttpRequest) createHttpTransport() (*http.Transport, error) {

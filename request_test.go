@@ -143,55 +143,6 @@ func TestFormatLogLevel(t *testing.T) {
 	assert.Equal("UNKNOWN", unknown)
 }
 
-func TestCombinePathComponents(t *testing.T) {
-	assert := assert.New(t)
-
-	brian_is_a_pedant := CombinePathComponents("foo")
-	assert.Equal("foo", brian_is_a_pedant)
-
-	brian_is_a_pedant2 := CombinePathComponents("/foo")
-	assert.Equal("foo", brian_is_a_pedant2)
-
-	brian_is_a_pedant3 := CombinePathComponents("foo/")
-	assert.Equal("foo", brian_is_a_pedant3)
-
-	brian_is_a_pedant4 := CombinePathComponents("/foo/")
-	assert.Equal("foo", brian_is_a_pedant4)
-
-	dual_test1 := CombinePathComponents("foo", "bar")
-	assert.Equal("foo/bar", dual_test1)
-
-	dual_test2 := CombinePathComponents("foo/", "bar")
-	assert.Equal("foo/bar", dual_test2)
-
-	dual_test3 := CombinePathComponents("foo/", "/bar")
-	assert.Equal("foo/bar", dual_test3)
-
-	dual_test4 := CombinePathComponents("/foo/", "/bar")
-	assert.Equal("foo/bar", dual_test4)
-
-	dual_test5 := CombinePathComponents("/foo/", "/bar/")
-	assert.Equal("foo/bar", dual_test5)
-
-	test1 := CombinePathComponents("foo", "bar", "baz")
-	assert.Equal("foo/bar/baz", test1)
-
-	test2 := CombinePathComponents("foo/", "bar/", "baz")
-	assert.Equal("foo/bar/baz", test2)
-
-	test3 := CombinePathComponents("foo/", "bar/", "baz/")
-	assert.Equal("foo/bar/baz", test3)
-
-	test4 := CombinePathComponents("foo/", "/bar/", "/baz")
-	assert.Equal("foo/bar/baz", test4)
-
-	test5 := CombinePathComponents("/foo/", "/bar/", "/baz")
-	assert.Equal("foo/bar/baz", test5)
-
-	test6 := CombinePathComponents("/foo/", "/bar/", "/baz/")
-	assert.Equal("foo/bar/baz", test6)
-}
-
 func TestCreateHttpRequestWithUrl(t *testing.T) {
 	assert := assert.New(t)
 	sr := NewRequest().
