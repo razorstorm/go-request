@@ -278,6 +278,16 @@ func (hr *HttpRequest) WithPostData(field string, value string) *HttpRequest {
 	return hr
 }
 
+func (hr *HttpRequest) WithPostDataFromObject(object interface{}) *HttpRequest {
+	postDatums := util.DecomposeToPostDataAsJson(object)
+
+	for _, item := range postDatums {
+		hr.WithPostData(item.Key, item.Value)
+	}
+
+	return hr
+}
+
 func (hr *HttpRequest) WithBasicAuth(username, password string) *HttpRequest {
 	hr.BasicAuthUsername = username
 	hr.BasicAuthPassword = password

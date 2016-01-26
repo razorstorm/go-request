@@ -229,6 +229,32 @@ func TestHttpPostWithPostData(t *testing.T) {
 	assert.Equal(returned_object, test_object)
 }
 
+type parameterObject struct {
+	Id     string `json:"identifier"`
+	Name   string
+	Values []int `json:"values"`
+}
+
+func TestHttpPostWithPostDataFromObject(t *testing.T) {
+	assert := assert.New(t)
+
+	returned_object := newTestObject()
+	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+		value := r.PostFormValue("identifier")
+		assert.Equal("test", value)
+	})
+
+	p := parameterObject{Id: "test", Name: "this is the name", Values: []int{1, 2, 3, 4}}
+
+	test_object := testObject{}
+	req := NewRequest().AsPost().WithUrl(ts.URL).WithPostDataFromObject(p)
+	assert.NotEmpty(req.PostData)
+	meta, err := req.FetchJsonToObjectWithMeta(&test_object)
+	assert.Nil(err)
+	assert.Equal(http.StatusOK, meta.StatusCode)
+	assert.Equal(returned_object, test_object)
+}
+
 func TestHttpPostWithBasicAuth(t *testing.T) {
 	assert := assert.New(t)
 
