@@ -41,12 +41,12 @@ func newHttpResponseMeta(res *http.Response) *HttpResponseMeta {
 	meta.StatusCode = res.StatusCode
 	meta.ContentLength = res.ContentLength
 
-	content_type_header := res.Header["content-type"]
+	content_type_header := res.Header["Content-Type"]
 	if content_type_header != nil && len(content_type_header) > 0 {
 		meta.ContentType = strings.Join(content_type_header, ";")
 	}
 
-	content_encoding_header := res.Header["content-encoding"]
+	content_encoding_header := res.Header["Content-Encoding"]
 	if content_encoding_header != nil && len(content_encoding_header) > 0 {
 		meta.ContentEncoding = strings.Join(content_encoding_header, ";")
 	}
