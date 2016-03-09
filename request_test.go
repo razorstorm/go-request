@@ -25,7 +25,7 @@ func statusOkObject() statusObject {
 }
 
 type testObject struct {
-	Id           int       `json:"id" xml:"id"`
+	ID           int       `json:"id" xml:"id"`
 	Name         string    `json:"name" xml:"name"`
 	TimestampUtc time.Time `json:"timestamp_utc" xml:"timestamp_utc"`
 	Value        float64   `json:"value" xml:"value"`
@@ -33,26 +33,26 @@ type testObject struct {
 
 func newTestObject() testObject {
 	to := testObject{}
-	to.Id = rand.Int()
-	to.Name = fmt.Sprintf("Test Object %d", to.Id)
+	to.ID = rand.Int()
+	to.Name = fmt.Sprintf("Test Object %d", to.ID)
 	to.TimestampUtc = time.Now().UTC()
 	to.Value = rand.Float64()
 	return to
 }
 
-func okMeta() *HttpResponseMeta {
-	return &HttpResponseMeta{StatusCode: http.StatusOK}
+func okMeta() *HTTPResponseMeta {
+	return &HTTPResponseMeta{StatusCode: http.StatusOK}
 }
 
-func errorMeta() *HttpResponseMeta {
-	return &HttpResponseMeta{StatusCode: http.StatusInternalServerError}
+func errorMeta() *HTTPResponseMeta {
+	return &HTTPResponseMeta{StatusCode: http.StatusInternalServerError}
 }
 
-func notFoundMeta() *HttpResponseMeta {
-	return &HttpResponseMeta{StatusCode: http.StatusNotFound}
+func notFoundMeta() *HTTPResponseMeta {
+	return &HTTPResponseMeta{StatusCode: http.StatusNotFound}
 }
 
-func writeJson(w http.ResponseWriter, meta *HttpResponseMeta, response interface{}) error {
+func writeJSON(w http.ResponseWriter, meta *HTTPResponseMeta, response interface{}) error {
 	bytes, err := json.Marshal(response)
 	if err == nil {
 		if !isEmpty(meta.ContentType) {
@@ -66,12 +66,12 @@ func writeJson(w http.ResponseWriter, meta *HttpResponseMeta, response interface
 		}
 
 		w.WriteHeader(meta.StatusCode)
-		count, write_error := w.Write(bytes)
+		count, writeError := w.Write(bytes)
 		if count == 0 {
 			return errors.New("WriteJson : Didnt write any bytes.")
 		}
-		if write_error != nil {
-			return write_error
+		if writeError != nil {
+			return writeError
 		}
 	} else {
 		return err
@@ -79,7 +79,7 @@ func writeJson(w http.ResponseWriter, meta *HttpResponseMeta, response interface
 	return nil
 }
 
-func mockEchoEndpoint(meta *HttpResponseMeta) *httptest.Server {
+func mockEchoEndpoint(meta *HTTPResponseMeta) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if !isEmpty(meta.ContentType) {
 			w.Header().Set("Content-Type", meta.ContentType)
@@ -99,23 +99,23 @@ func mockEchoEndpoint(meta *HttpResponseMeta) *httptest.Server {
 
 type validationFunc func(r *http.Request)
 
-func mockEndpoint(meta *HttpResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
+func mockEndpoint(meta *HTTPResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if validations != nil {
 			validations(r)
 		}
 
-		writeJson(w, meta, returnWithObject)
+		writeJSON(w, meta, returnWithObject)
 	})
 }
 
-func mockTlsEndpoint(meta *HttpResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
+func mockTLSEndpoint(meta *HTTPResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if validations != nil {
 			validations(r)
 		}
 
-		writeJson(w, meta, returnWithObject)
+		writeJSON(w, meta, returnWithObject)
 	})
 }
 
@@ -123,20 +123,20 @@ func getMockServer(handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewServer(handler)
 }
 
-func getTlsMockServer(handler http.HandlerFunc) *httptest.Server {
+func getTLSMockServer(handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewTLSServer(handler)
 }
 
 func TestFormatLogLevel(t *testing.T) {
 	assert := assert.New(t)
 
-	errors := formatLogLevel(HTTPREQUEST_LOG_LEVEL_ERRORS)
+	errors := formatLogLevel(HTTPRequestLogLevelErrors)
 	assert.Equal("ERRORS", errors)
 
-	verbose := formatLogLevel(HTTPREQUEST_LOG_LEVEL_VERBOSE)
+	verbose := formatLogLevel(HTTPRequestLogLevelVerbose)
 	assert.Equal("VERBOSE", verbose)
 
-	debug := formatLogLevel(HTTPREQUEST_LOG_LEVEL_DEBUG)
+	debug := formatLogLevel(HTTPRequestLogLevelDebug)
 	assert.Equal("DEBUG", debug)
 
 	unknown := formatLogLevel(-1)
@@ -145,8 +145,8 @@ func TestFormatLogLevel(t *testing.T) {
 
 func TestCreateHttpRequestWithUrl(t *testing.T) {
 	assert := assert.New(t)
-	sr := NewRequest().
-		WithUrl("http://localhost:5001/api/v1/path/2?env=dev&foo=bar")
+	sr := NewHTTPRequest().
+		WithURL("http://localhost:5001/api/v1/path/2?env=dev&foo=bar")
 
 	assert.Equal("http", sr.Scheme)
 	assert.Equal("localhost:5001", sr.Host)
@@ -159,13 +159,13 @@ func TestCreateHttpRequestWithUrl(t *testing.T) {
 
 func TestHttpGet(t *testing.T) {
 	assert := assert.New(t)
-	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object, nil)
-	test_object := testObject{}
-	meta, err := NewRequest().AsGet().WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	returnedObject := newTestObject()
+	ts := mockEndpoint(okMeta(), returnedObject, nil)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsGet().WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 func TestHttpGetWithExpiringTimeout(t *testing.T) {
@@ -174,14 +174,14 @@ func TestHttpGetWithExpiringTimeout(t *testing.T) {
 	}
 
 	assert := assert.New(t)
-	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+	returnedObject := newTestObject()
+	ts := mockEndpoint(okMeta(), returnedObject, func(r *http.Request) {
 		time.Sleep(1000 * time.Millisecond)
 	})
-	test_object := testObject{}
+	testObject := testObject{}
 
 	before := time.Now()
-	_, err := NewRequest().AsGet().WithTimeout(250 * time.Millisecond).WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	_, err := NewHTTPRequest().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
 	after := time.Now()
 
 	diff := after.Sub(before)
@@ -191,46 +191,46 @@ func TestHttpGetWithExpiringTimeout(t *testing.T) {
 
 func TestHttpGetWithTimeout(t *testing.T) {
 	assert := assert.New(t)
-	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+	returnedObject := newTestObject()
+	ts := mockEndpoint(okMeta(), returnedObject, func(r *http.Request) {
 		assert.Equal("GET", r.Method)
 	})
-	test_object := testObject{}
-	meta, err := NewRequest().AsGet().WithTimeout(250 * time.Millisecond).WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 func TestTlsHttpGet(t *testing.T) {
 	assert := assert.New(t)
-	returned_object := newTestObject()
-	ts := mockTlsEndpoint(okMeta(), returned_object, nil)
-	test_object := testObject{}
-	meta, err := NewRequest().AsGet().WithUrl(ts.URL).FetchJsonToObjectWithMeta(&test_object)
+	returnedObject := newTestObject()
+	ts := mockTLSEndpoint(okMeta(), returnedObject, nil)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsGet().WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 func TestHttpPostWithPostData(t *testing.T) {
 	assert := assert.New(t)
 
-	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+	returnedObject := newTestObject()
+	ts := mockEndpoint(okMeta(), returnedObject, func(r *http.Request) {
 		value := r.PostFormValue("foo")
 		assert.Equal("bar", value)
 	})
 
-	test_object := testObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithPostData("foo", "bar").FetchJsonToObjectWithMeta(&test_object)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithPostData("foo", "bar").FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 type parameterObject struct {
-	Id     string `json:"identifier"`
+	ID     string `json:"identifier"`
 	Name   string
 	Values []int `json:"values"`
 }
@@ -238,21 +238,21 @@ type parameterObject struct {
 func TestHttpPostWithPostDataFromObject(t *testing.T) {
 	assert := assert.New(t)
 
-	returned_object := newTestObject()
-	ts := mockEndpoint(okMeta(), returned_object, func(r *http.Request) {
+	returnedObject := newTestObject()
+	ts := mockEndpoint(okMeta(), returnedObject, func(r *http.Request) {
 		value := r.PostFormValue("identifier")
 		assert.Equal("test", value)
 	})
 
-	p := parameterObject{Id: "test", Name: "this is the name", Values: []int{1, 2, 3, 4}}
+	p := parameterObject{ID: "test", Name: "this is the name", Values: []int{1, 2, 3, 4}}
 
-	test_object := testObject{}
-	req := NewRequest().AsPost().WithUrl(ts.URL).WithPostDataFromObject(p)
+	testObject := testObject{}
+	req := NewHTTPRequest().AsPost().WithURL(ts.URL).WithPostDataFromObject(p)
 	assert.NotEmpty(req.PostData)
-	meta, err := req.FetchJsonToObjectWithMeta(&test_object)
+	meta, err := req.FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 func TestHttpPostWithBasicAuth(t *testing.T) {
@@ -265,11 +265,11 @@ func TestHttpPostWithBasicAuth(t *testing.T) {
 		assert.Equal("test_password", password)
 	})
 
-	test_object := statusObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	testObject := statusObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal("ok!", test_object.Status)
+	assert.Equal("ok!", testObject.Status)
 }
 
 func TestHttpPostWithHeader(t *testing.T) {
@@ -280,11 +280,11 @@ func TestHttpPostWithHeader(t *testing.T) {
 		assert.Equal(value, "foosballs")
 	})
 
-	test_object := statusObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithHeader("test_header", "foosballs").WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	testObject := statusObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithHeader("test_header", "foosballs").WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal("ok!", test_object.Status)
+	assert.Equal("ok!", testObject.Status)
 }
 
 func TestHttpPostWithCookies(t *testing.T) {
@@ -300,42 +300,42 @@ func TestHttpPostWithCookies(t *testing.T) {
 	}
 
 	ts := mockEndpoint(okMeta(), statusOkObject(), func(r *http.Request) {
-		read_cookie, read_cookie_err := r.Cookie("test")
-		assert.Nil(read_cookie_err)
-		assert.Equal(cookie.Value, read_cookie.Value)
+		readCookie, readCookieErr := r.Cookie("test")
+		assert.Nil(readCookieErr)
+		assert.Equal(cookie.Value, readCookie.Value)
 	})
 
-	test_object := statusObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithCookie(cookie).WithRawBody(`{"status":"ok!"}`).FetchJsonToObjectWithMeta(&test_object)
+	testObject := statusObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithCookie(cookie).WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal("ok!", test_object.Status)
+	assert.Equal("ok!", testObject.Status)
 }
 
-func TestHttpPostWithJsonBody(t *testing.T) {
+func TestHttpPostWithJSONBody(t *testing.T) {
 	assert := assert.New(t)
 
-	returned_object := newTestObject()
+	returnedObject := newTestObject()
 	ts := mockEchoEndpoint(okMeta())
 
-	test_object := testObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithJsonBody(&returned_object).FetchJsonToObjectWithMeta(&test_object)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithJSONBody(&returnedObject).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
-func TestHttpPostWithXmlBody(t *testing.T) {
+func TestHttpPostWithXMLBody(t *testing.T) {
 	assert := assert.New(t)
 
-	returned_object := newTestObject()
+	returnedObject := newTestObject()
 	ts := mockEchoEndpoint(okMeta())
 
-	test_object := testObject{}
-	meta, err := NewRequest().AsPost().WithUrl(ts.URL).WithXmlBody(&returned_object).FetchXmlToObjectWithMeta(&test_object)
+	testObject := testObject{}
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithXMLBody(&returnedObject).FetchXMLToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal(returned_object, test_object)
+	assert.Equal(returnedObject, testObject)
 }
 
 func TestMockedRequests(t *testing.T) {
@@ -345,11 +345,11 @@ func TestMockedRequests(t *testing.T) {
 		assert.True(false, "This shouldnt run in a mocked context.")
 	})
 
-	verify_string, meta, err := NewRequest().AsPut().WithRawBody("foobar").WithUrl(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HttpResponseMeta, []byte, error) {
+	verifyString, meta, err := NewHTTPRequest().AsPut().WithRawBody("foobar").WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error) {
 		return true, okMeta(), []byte("ok!"), nil
 	}).FetchStringWithMeta()
 
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
-	assert.Equal("ok!", verify_string)
+	assert.Equal("ok!", verifyString)
 }
