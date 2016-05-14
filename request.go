@@ -501,6 +501,8 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, reqErr
 	}
 
+	hr.logRequest(req.URL)
+
 	if hr.mockHandler != nil {
 		didMockResponse, mockedMeta, mockedResponse, mockedResponseErr := hr.mockHandler(hr.Verb, req.URL)
 		if didMockResponse {
@@ -528,21 +530,13 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 		client.Timeout = hr.Timeout
 	}
 
-	hr.logRequest(req.URL)
-
 	res, resErr := client.Do(req)
 	return res, exception.Wrap(resErr)
 }
 
 // Execute makes the request but does not read the response.
 func (hr *HTTPRequest) Execute() error {
-	res, err := hr.FetchRawResponse()
-	if res != nil && res.Body != nil {
-		closeErr := res.Body.Close()
-		if closeErr != nil {
-			return exception.WrapMany(exception.Wrap(err), exception.Wrap(closeErr))
-		}
-	}
+	_, err := hr.ExecuteWithMeta()
 	return exception.Wrap(err)
 }
 
