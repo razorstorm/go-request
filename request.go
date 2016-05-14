@@ -501,6 +501,8 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 		return nil, reqErr
 	}
 
+	hr.logRequest(req.URL)
+
 	if hr.mockHandler != nil {
 		didMockResponse, mockedMeta, mockedResponse, mockedResponseErr := hr.mockHandler(hr.Verb, req.URL)
 		if didMockResponse {
@@ -527,8 +529,6 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 	if hr.Timeout != time.Duration(0) {
 		client.Timeout = hr.Timeout
 	}
-
-	hr.logRequest(req.URL)
 
 	res, resErr := client.Do(req)
 	return res, exception.Wrap(resErr)
