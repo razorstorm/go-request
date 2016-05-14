@@ -536,13 +536,7 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 
 // Execute makes the request but does not read the response.
 func (hr *HTTPRequest) Execute() error {
-	res, err := hr.FetchRawResponse()
-	if res != nil && res.Body != nil {
-		closeErr := res.Body.Close()
-		if closeErr != nil {
-			return exception.WrapMany(exception.Wrap(err), exception.Wrap(closeErr))
-		}
-	}
+	_, err := hr.ExecuteWithMeta()
 	return exception.Wrap(err)
 }
 
