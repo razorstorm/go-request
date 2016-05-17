@@ -60,6 +60,13 @@ func NewHTTPResponseMeta(res *http.Response) *HTTPResponseMeta {
 	return meta
 }
 
+type HTTPRequestMeta struct {
+	Verb    string
+	URL     *url.URL
+	Headers http.Header
+	Body    []byte
+}
+
 // HTTPResponseMeta is just the meta information for an http response.
 type HTTPResponseMeta struct {
 	StatusCode      int
@@ -70,16 +77,13 @@ type HTTPResponseMeta struct {
 }
 
 // CreateTransportHandler is a receiver for `OnCreateTransport`.
-type CreateTransportHandler func(host url.URL, transport *http.Transport)
+type CreateTransportHandler func(host *url.URL, transport *http.Transport)
 
 // ResponseHandler is a receiver for `OnResponse`.
 type ResponseHandler func(meta *HTTPResponseMeta, content []byte)
 
 // OutgoingRequestHandler is a receiver for `OnRequest`.
-type OutgoingRequestHandler func(verb string, url *url.URL)
-
-// OutgoingRequestBodyHandler is a receiver for `OnRequestBody`.
-type OutgoingRequestBodyHandler func(body []byte)
+type OutgoingRequestHandler func(req *HTTPRequestMeta)
 
 // MockedResponseHandler is a receiver for `WithMockedResponse`.
 type MockedResponseHandler func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error)
@@ -113,7 +117,7 @@ type HTTPRequest struct {
 	Timeout           time.Duration
 	TLSCertPath       string
 	TLSKeyPath        string
-	Body              string
+	Body              []byte
 	KeepAlive         bool
 
 	Label string
@@ -123,11 +127,10 @@ type HTTPRequest struct {
 
 	transport *http.Transport
 
-	createTransportHandler     CreateTransportHandler
-	incomingResponseHandler    ResponseHandler
-	outgoingRequestHandler     OutgoingRequestHandler
-	outgoingRequestBodyHandler OutgoingRequestBodyHandler
-	mockHandler                MockedResponseHandler
+	createTransportHandler  CreateTransportHandler
+	incomingResponseHandler ResponseHandler
+	outgoingRequestHandler  OutgoingRequestHandler
+	mockHandler             MockedResponseHandler
 }
 
 // OnResponse configures an event receiver.
@@ -145,12 +148,6 @@ func (hr *HTTPRequest) OnCreateTransport(hook CreateTransportHandler) *HTTPReque
 // OnRequest configures an event receiver.
 func (hr *HTTPRequest) OnRequest(hook OutgoingRequestHandler) *HTTPRequest {
 	hr.outgoingRequestHandler = hook
-	return hr
-}
-
-// OnRequestBody configures an event receiver.
-func (hr *HTTPRequest) OnRequestBody(hook OutgoingRequestBodyHandler) *HTTPRequest {
-	hr.outgoingRequestBodyHandler = hook
 	return hr
 }
 
@@ -399,6 +396,9 @@ func (hr *HTTPRequest) AsDelete() *HTTPRequest {
 // Deserializer is a function that does things with the response body.
 type Deserializer func(body []byte) error
 
+// Serializer is a function that turns an object into raw data.
+type Serializer func(value interface{}) ([]byte, error)
+
 // WithJSONBody sets the post body raw to be the json representation of an object.
 func (hr *HTTPRequest) WithJSONBody(object interface{}) *HTTPRequest {
 	return hr.WithBody(object, serializeJSON).WithContentType("application/json")
@@ -410,84 +410,86 @@ func (hr *HTTPRequest) WithXMLBody(object interface{}) *HTTPRequest {
 }
 
 // WithBody sets the post body with the results of the given serializer.
-func (hr *HTTPRequest) WithBody(object interface{}, serialize func(interface{}) string) *HTTPRequest {
-	return hr.WithRawBody(serialize(object))
+func (hr *HTTPRequest) WithBody(object interface{}, serialize Serializer) *HTTPRequest {
+	body, _ := serialize(object)
+	return hr.WithRawBody(body)
 }
 
 // WithRawBody sets the post body directly.
-func (hr *HTTPRequest) WithRawBody(body string) *HTTPRequest {
+func (hr *HTTPRequest) WithRawBody(body []byte) *HTTPRequest {
 	hr.Body = body
 	return hr
 }
 
 // CreateURL returns the currently formatted request target url.
-func (hr *HTTPRequest) CreateURL() url.URL {
-	workingURL := url.URL{Scheme: hr.Scheme, Host: hr.Host, Path: hr.Path}
+func (hr *HTTPRequest) CreateURL() *url.URL {
+	workingURL := &url.URL{Scheme: hr.Scheme, Host: hr.Host, Path: hr.Path}
 	workingURL.RawQuery = hr.QueryString.Encode()
 	return workingURL
 }
 
-// RequestBody returns the current post body.
-func (hr *HTTPRequest) RequestBody() string {
-	if hr.Body != "" {
-		return hr.Body
-	} else if hr.PostData != nil {
-		return hr.PostData.Encode()
-	} else {
-		return util.StringEmpty
+func (hr *HTTPRequest) RequestMeta() *HTTPRequestMeta {
+	return &HTTPRequestMeta{
+		Verb:    hr.Verb,
+		URL:     hr.CreateURL(),
+		Body:    hr.RequestBody(),
+		Headers: hr.Headers(),
 	}
+}
+
+// RequestBody returns the current post body.
+func (hr *HTTPRequest) RequestBody() []byte {
+	if len(hr.Body) > 0 {
+		return hr.Body
+	} else if len(hr.PostData) > 0 {
+		return []byte(hr.PostData.Encode())
+	}
+	return nil
+}
+
+func (hr *HTTPRequest) Headers() http.Header {
+	headers := http.Header{}
+	for key, values := range hr.Header {
+		for _, value := range values {
+			headers.Set(key, value)
+		}
+	}
+	if len(hr.PostData) > 0 {
+		headers.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if !isEmpty(hr.ContentType) {
+		headers.Set("Content-Type", hr.ContentType)
+	}
+	return headers
 }
 
 // CreateHTTPRequest returns a http.Request for the HTTPRequest.
 func (hr *HTTPRequest) CreateHTTPRequest() (*http.Request, error) {
 	workingURL := hr.CreateURL()
 
-	if hr.Body != "" && hr.PostData != nil && len(hr.PostData) > 0 {
+	if len(hr.Body) > 0 && len(hr.PostData) > 0 {
 		return nil, exception.New("Cant set both a body and have post data!")
 	}
 
-	var req *http.Request
-	if hr.Body != "" {
-		bodyReq, bodyReqErr := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBufferString(hr.Body))
-		if bodyReqErr != nil {
-			return nil, exception.Wrap(bodyReqErr)
-		}
-		req = bodyReq
-	} else {
-		if hr.PostData != nil {
-			postReq, postReqError := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBufferString(hr.PostData.Encode()))
-			if postReqError != nil {
-				return nil, exception.Wrap(postReqError)
-			}
-			req = postReq
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		} else {
-			emptyReq, emptyReqErr := http.NewRequest(hr.Verb, workingURL.String(), nil)
-			if emptyReqErr != nil {
-				return nil, exception.Wrap(emptyReqErr)
-			}
-			req = emptyReq
-		}
+	req, err := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBuffer(hr.RequestBody()))
+	if err != nil {
+		return nil, exception.Wrap(err)
 	}
 
 	if !isEmpty(hr.BasicAuthUsername) {
 		req.SetBasicAuth(hr.BasicAuthUsername, hr.BasicAuthPassword)
 	}
 
-	if !isEmpty(hr.ContentType) {
-		req.Header.Set("Content-Type", hr.ContentType)
-	}
-
-	for key, values := range hr.Header {
-		for _, value := range values {
-			req.Header.Set(key, value)
-		}
-	}
-
 	if hr.Cookies != nil {
 		for i := 0; i < len(hr.Cookies); i++ {
 			cookie := hr.Cookies[i]
 			req.AddCookie(cookie)
+		}
+	}
+
+	for key, values := range hr.Headers() {
+		for _, value := range values {
+			req.Header.Set(key, value)
 		}
 	}
 
@@ -528,8 +530,7 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 		client.Timeout = hr.Timeout
 	}
 
-	hr.logRequest(req.URL)
-
+	hr.logRequest()
 	res, resErr := client.Do(req)
 	return res, exception.Wrap(resErr)
 }
@@ -562,7 +563,7 @@ func (hr *HTTPRequest) ExecuteWithMeta() (*HTTPResponseMeta, error) {
 // FetchString returns the body of the response as a string.
 func (hr *HTTPRequest) FetchString() (string, error) {
 	responseStr, _, err := hr.FetchStringWithMeta()
-	return responseStr, exception.Wrap(err)
+	return responseStr, err
 }
 
 // FetchStringWithMeta returns the body of the response as a string in addition to the response metadata.
@@ -729,21 +730,19 @@ func (hr *HTTPRequest) deserializeWithError(okHandler Deserializer, errorHandler
 	return meta, exception.Wrap(err)
 }
 
-func (hr *HTTPRequest) logRequest(url *url.URL) {
+func (hr *HTTPRequest) logRequest() {
+	meta := hr.RequestMeta()
 	if hr.outgoingRequestHandler != nil {
-		hr.outgoingRequestHandler(hr.Verb, url)
+		hr.outgoingRequestHandler(meta)
 	}
-	if hr.outgoingRequestBodyHandler != nil {
-		hr.outgoingRequestBodyHandler([]byte(hr.RequestBody()))
-	}
-	hr.logf(HTTPRequestLogLevelVerbose, "Service Request ==> %s %s\n", hr.Verb, url.String())
+	hr.logf(HTTPRequestLogLevelVerbose, "Service Request ==> %s %s\n", meta.Verb, meta.URL.String())
 }
 
 func (hr *HTTPRequest) logResponse(meta *HTTPResponseMeta, responseBody []byte) {
 	if hr.incomingResponseHandler != nil {
 		hr.incomingResponseHandler(meta, responseBody)
 	}
-	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", string(responseBody))
+	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", responseBody)
 }
 
 //--------------------------------------------------------------------------------
@@ -752,18 +751,18 @@ func (hr *HTTPRequest) logResponse(meta *HTTPResponseMeta, responseBody []byte) 
 
 func newJSONDeserializer(object interface{}) Deserializer {
 	return func(body []byte) error {
-		return deserializeJSON(object, string(body))
+		return deserializeJSON(object, body)
 	}
 }
 
 func newXMLDeserializer(object interface{}) Deserializer {
 	return func(body []byte) error {
-		return deserializeXML(object, string(body))
+		return deserializeXML(object, body)
 	}
 }
 
-func deserializeJSON(object interface{}, body string) error {
-	decoder := json.NewDecoder(bytes.NewBufferString(body))
+func deserializeJSON(object interface{}, body []byte) error {
+	decoder := json.NewDecoder(bytes.NewBuffer(body))
 	decodeErr := decoder.Decode(object)
 	return exception.Wrap(decodeErr)
 }
@@ -774,28 +773,19 @@ func deserializeJSONFromReader(object interface{}, body io.Reader) error {
 	return exception.Wrap(decodeErr)
 }
 
-func deserializePostBody(object interface{}, body io.ReadCloser) error {
-	defer body.Close()
-	bodyBytes, err := ioutil.ReadAll(body)
-	if err != nil {
-		return exception.Wrap(err)
-	}
-
-	return deserializeJSON(object, string(bodyBytes))
+func serializeJSON(object interface{}) ([]byte, error) {
+	return json.Marshal(object)
 }
 
-func serializeJSON(object interface{}) string {
-	b, _ := json.Marshal(object)
-	return string(b)
+func serializeJSONToReader(object interface{}) (io.Reader, error) {
+	buf := bytes.NewBuffer([]byte{})
+	encoder := json.NewEncoder(buf)
+	err := encoder.Encode(object)
+	return buf, err
 }
 
-func serializeJSONToReader(object interface{}) io.Reader {
-	b, _ := json.Marshal(object)
-	return bytes.NewBufferString(string(b))
-}
-
-func deserializeXML(object interface{}, body string) error {
-	return deserializeXMLFromReader(object, bytes.NewBufferString(body))
+func deserializeXML(object interface{}, body []byte) error {
+	return deserializeXMLFromReader(object, bytes.NewBuffer(body))
 }
 
 func deserializeXMLFromReader(object interface{}, reader io.Reader) error {
@@ -803,14 +793,15 @@ func deserializeXMLFromReader(object interface{}, reader io.Reader) error {
 	return decoder.Decode(object)
 }
 
-func serializeXML(object interface{}) string {
-	b, _ := xml.Marshal(object)
-	return string(b)
+func serializeXML(object interface{}) ([]byte, error) {
+	return xml.Marshal(object)
 }
 
-func serializeXMLToReader(object interface{}) io.Reader {
-	b, _ := xml.Marshal(object)
-	return bytes.NewBufferString(string(b))
+func serializeXMLToReader(object interface{}) (io.Reader, error) {
+	buf := bytes.NewBuffer([]byte{})
+	encoder := xml.NewEncoder(buf)
+	err := encoder.Encode(object)
+	return buf, err
 }
 
 func getLoggingPrefix(logLevel int) string {

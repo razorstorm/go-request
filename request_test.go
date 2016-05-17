@@ -266,7 +266,7 @@ func TestHttpPostWithBasicAuth(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -281,7 +281,7 @@ func TestHttpPostWithHeader(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithHeader("test_header", "foosballs").WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithHeader("test_header", "foosballs").WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -306,7 +306,7 @@ func TestHttpPostWithCookies(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithCookie(cookie).WithRawBody(`{"status":"ok!"}`).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithCookie(cookie).WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -345,7 +345,7 @@ func TestMockedRequests(t *testing.T) {
 		assert.True(false, "This shouldnt run in a mocked context.")
 	})
 
-	verifyString, meta, err := NewHTTPRequest().AsPut().WithRawBody("foobar").WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error) {
+	verifyString, meta, err := NewHTTPRequest().AsPut().WithRawBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error) {
 		return true, okMeta(), []byte("ok!"), nil
 	}).FetchStringWithMeta()
 
