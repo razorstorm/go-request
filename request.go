@@ -60,6 +60,7 @@ func NewHTTPResponseMeta(res *http.Response) *HTTPResponseMeta {
 	return meta
 }
 
+// HTTPRequestMeta is a summary of the request meta useful for logging.
 type HTTPRequestMeta struct {
 	Verb    string
 	URL     *url.URL
@@ -87,6 +88,12 @@ type OutgoingRequestHandler func(req *HTTPRequestMeta)
 
 // MockedResponseHandler is a receiver for `WithMockedResponse`.
 type MockedResponseHandler func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error)
+
+// Deserializer is a function that does things with the response body.
+type Deserializer func(body []byte) error
+
+// Serializer is a function that turns an object into raw data.
+type Serializer func(value interface{}) ([]byte, error)
 
 //--------------------------------------------------------------------------------
 // HTTPRequest
@@ -393,24 +400,18 @@ func (hr *HTTPRequest) AsDelete() *HTTPRequest {
 	return hr
 }
 
-// Deserializer is a function that does things with the response body.
-type Deserializer func(body []byte) error
-
-// Serializer is a function that turns an object into raw data.
-type Serializer func(value interface{}) ([]byte, error)
-
 // WithJSONBody sets the post body raw to be the json representation of an object.
 func (hr *HTTPRequest) WithJSONBody(object interface{}) *HTTPRequest {
-	return hr.WithBody(object, serializeJSON).WithContentType("application/json")
+	return hr.WithSerializedBody(object, serializeJSON).WithContentType("application/json")
 }
 
 // WithXMLBody sets the post body raw to be the xml representation of an object.
 func (hr *HTTPRequest) WithXMLBody(object interface{}) *HTTPRequest {
-	return hr.WithBody(object, serializeXML).WithContentType("application/xml")
+	return hr.WithSerializedBody(object, serializeXML).WithContentType("application/xml")
 }
 
 // WithBody sets the post body with the results of the given serializer.
-func (hr *HTTPRequest) WithBody(object interface{}, serialize Serializer) *HTTPRequest {
+func (hr *HTTPRequest) WithSerializedBody(object interface{}, serialize Serializer) *HTTPRequest {
 	body, _ := serialize(object)
 	return hr.WithRawBody(body)
 }
@@ -468,7 +469,7 @@ func (hr *HTTPRequest) CreateHTTPRequest() (*http.Request, error) {
 	workingURL := hr.CreateURL()
 
 	if len(hr.Body) > 0 && len(hr.PostData) > 0 {
-		return nil, exception.New("Cant set both a body and have post data!")
+		return nil, exception.New("Cant set both a body and have post data.")
 	}
 
 	req, err := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBuffer(hr.RequestBody()))
