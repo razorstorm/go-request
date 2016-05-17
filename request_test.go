@@ -353,3 +353,16 @@ func TestMockedRequests(t *testing.T) {
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", verifyString)
 }
+
+func TestOnRequestHook(t *testing.T) {
+	assert := assert.New(t)
+
+	ts := mockEchoEndpoint(okMeta())
+
+	called := false
+	_, _, err := NewHTTPRequest().AsPut().WithRawBody([]byte("foobar")).WithURL(ts.URL).OnRequest(func(meta *HTTPRequestMeta) {
+		called = true
+	}).FetchStringWithMeta()
+	assert.Nil(err)
+	assert.True(called)
+}
