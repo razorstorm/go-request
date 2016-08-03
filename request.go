@@ -84,7 +84,7 @@ type CreateTransportHandler func(host *url.URL, transport *http.Transport)
 type ResponseHandler func(meta *HTTPResponseMeta, content []byte)
 
 // StatefulResponseHandler is a receiver for `OnResponse`.
-type StatefulResponseHandler func(meta *HTTPResponseMeta, content []byte, state interface{})
+type StatefulResponseHandler func(req *HTTPRequestMeta, res *HTTPResponseMeta, content []byte, state interface{})
 
 // OutgoingRequestHandler is a receiver for `OnRequest`.
 type OutgoingRequestHandler func(req *HTTPRequestMeta)
@@ -591,20 +591,20 @@ func (hr *HTTPRequest) FetchString() (string, error) {
 // FetchStringWithMeta returns the body of the response as a string in addition to the response metadata.
 func (hr *HTTPRequest) FetchStringWithMeta() (string, *HTTPResponseMeta, error) {
 	res, err := hr.FetchRawResponse()
-	meta := NewHTTPResponseMeta(res)
+	resMeta := NewHTTPResponseMeta(res)
 	if err != nil {
-		return util.StringEmpty, meta, exception.Wrap(err)
+		return util.StringEmpty, resMeta, exception.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	bytes, readErr := ioutil.ReadAll(res.Body)
 	if readErr != nil {
-		return util.StringEmpty, meta, exception.Wrap(readErr)
+		return util.StringEmpty, resMeta, exception.Wrap(readErr)
 	}
 
-	meta.ContentLength = int64(len(bytes))
-	hr.logResponse(meta, bytes, hr.state)
-	return string(bytes), meta, nil
+	resMeta.ContentLength = int64(len(bytes))
+	hr.logResponse(resMeta, bytes, hr.state)
+	return string(bytes), resMeta, nil
 }
 
 // FetchJSONToObject unmarshals the response as json to an object.
@@ -760,12 +760,12 @@ func (hr *HTTPRequest) logRequest() {
 	hr.logf(HTTPRequestLogLevelVerbose, "Service Request ==> %s %s\n", meta.Verb, meta.URL.String())
 }
 
-func (hr *HTTPRequest) logResponse(meta *HTTPResponseMeta, responseBody []byte, state interface{}) {
+func (hr *HTTPRequest) logResponse(res *HTTPResponseMeta, responseBody []byte, state interface{}) {
 	if hr.statefulIncomingResponseHandler != nil {
-		hr.statefulIncomingResponseHandler(meta, responseBody, state)
+		hr.statefulIncomingResponseHandler(hr.AsMeta(), res, responseBody, state)
 	}
 	if hr.incomingResponseHandler != nil {
-		hr.incomingResponseHandler(meta, responseBody)
+		hr.incomingResponseHandler(res, responseBody)
 	}
 	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", string(responseBody))
 }
