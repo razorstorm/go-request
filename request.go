@@ -113,22 +113,23 @@ func NewHTTPRequest() *HTTPRequest {
 
 // HTTPRequest makes http requests.
 type HTTPRequest struct {
-	Scheme            string
-	Host              string
-	Path              string
-	QueryString       url.Values
-	Header            http.Header
-	PostData          url.Values
-	Cookies           []*http.Cookie
-	BasicAuthUsername string
-	BasicAuthPassword string
-	Verb              string
-	ContentType       string
-	Timeout           time.Duration
-	TLSCertPath       string
-	TLSKeyPath        string
-	Body              []byte
-	KeepAlive         bool
+	Scheme              string
+	Host                string
+	Path                string
+	QueryString         url.Values
+	Header              http.Header
+	PostData            url.Values
+	Cookies             []*http.Cookie
+	BasicAuthUsername   string
+	BasicAuthPassword   string
+	Verb                string
+	ContentType         string
+	Timeout             time.Duration
+	TLSCertPath         string
+	TLSKeyPath          string
+	SkipTLSVerification bool
+	Body                []byte
+	KeepAlive           bool
 
 	Label string
 
@@ -178,6 +179,12 @@ func (hr *HTTPRequest) WithState(state interface{}) *HTTPRequest {
 // WithLabel gives the request a logging label.
 func (hr *HTTPRequest) WithLabel(label string) *HTTPRequest {
 	hr.Label = label
+	return hr
+}
+
+// ShouldSkipTLSVerification skips the bad certificate checking on TLS requests.
+func (hr *HTTPRequest) ShouldSkipTLSVerification() *HTTPRequest {
+	hr.SkipTLSVerification = true
 	return hr
 }
 
@@ -427,7 +434,7 @@ func (hr *HTTPRequest) WithXMLBody(object interface{}) *HTTPRequest {
 	return hr.WithSerializedBody(object, serializeXML).WithContentType("application/xml")
 }
 
-// WithBody sets the post body with the results of the given serializer.
+// WithSerializedBody sets the post body with the results of the given serializer.
 func (hr *HTTPRequest) WithSerializedBody(object interface{}, serialize Serializer) *HTTPRequest {
 	body, _ := serialize(object)
 	return hr.WithRawBody(body)
@@ -653,7 +660,10 @@ func (hr *HTTPRequest) FetchObjectWithSerializer(deserialize Deserializer) (*HTT
 }
 
 func (hr *HTTPRequest) requiresCustomTransport() bool {
-	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) || hr.transport != nil || hr.createTransportHandler != nil
+	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) ||
+		hr.transport != nil ||
+		hr.createTransportHandler != nil ||
+		hr.SkipTLSVerification
 }
 
 func (hr *HTTPRequest) getHTTPTransport() (*http.Transport, error) {
@@ -692,7 +702,13 @@ func (hr *HTTPRequest) createHTTPTransport() (*http.Transport, error) {
 			return nil, exception.Wrap(err)
 		}
 		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{cert},
+			InsecureSkipVerify: hr.SkipTLSVerification,
+			Certificates:       []tls.Certificate{cert},
+		}
+		transport.TLSClientConfig = tlsConfig
+	} else {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: hr.SkipTLSVerification,
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
