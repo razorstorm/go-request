@@ -32,6 +32,42 @@ const (
 )
 
 //--------------------------------------------------------------------------------
+// HTTPRequestMeta
+//--------------------------------------------------------------------------------
+
+// NewHTTPRequestMeta returns a new meta object for a request.
+func NewHTTPRequestMeta(req *http.Request) *HTTPRequestMeta {
+	return &HTTPRequestMeta{
+		Verb:    req.Method,
+		URL:     req.URL,
+		Headers: req.Header,
+	}
+}
+
+// NewHTTPRequestMetaWithBody returns a new meta object for a request and reads the body.
+func NewHTTPRequestMetaWithBody(req *http.Request) (*HTTPRequestMeta, error) {
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer req.Body.Close()
+	return &HTTPRequestMeta{
+		Verb:    req.Method,
+		URL:     req.URL,
+		Headers: req.Header,
+		Body:    body,
+	}, nil
+}
+
+// HTTPRequestMeta is a summary of the request meta useful for logging.
+type HTTPRequestMeta struct {
+	Verb    string
+	URL     *url.URL
+	Headers http.Header
+	Body    []byte
+}
+
+//--------------------------------------------------------------------------------
 // HttpResponseMeta
 //--------------------------------------------------------------------------------
 
@@ -58,14 +94,6 @@ func NewHTTPResponseMeta(res *http.Response) *HTTPResponseMeta {
 
 	meta.Headers = res.Header
 	return meta
-}
-
-// HTTPRequestMeta is a summary of the request meta useful for logging.
-type HTTPRequestMeta struct {
-	Verb    string
-	URL     *url.URL
-	Headers http.Header
-	Body    []byte
 }
 
 // HTTPResponseMeta is just the meta information for an http response.
