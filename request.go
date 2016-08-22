@@ -166,7 +166,7 @@ type HTTPRequest struct {
 
 	state interface{}
 
-	responseBuffer *bytes.Buffer
+	responseBuffer Buffer
 
 	transport                       *http.Transport
 	createTransportHandler          CreateTransportHandler
@@ -455,7 +455,7 @@ func (hr *HTTPRequest) AsDelete() *HTTPRequest {
 }
 
 // WithResponseBuffer sets the response buffer for the request (if you want to re-use one).
-func (hr *HTTPRequest) WithResponseBuffer(buffer *bytes.Buffer) *HTTPRequest {
+func (hr *HTTPRequest) WithResponseBuffer(buffer Buffer) *HTTPRequest {
 	hr.responseBuffer = buffer
 	return hr
 }
@@ -832,6 +832,14 @@ func (hr *HTTPRequest) logResponse(res *HTTPResponseMeta, responseBody []byte, s
 		hr.incomingResponseHandler(res, responseBody)
 	}
 	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", string(responseBody))
+}
+
+// Buffer is a type that supplies two methods found on bytes.Buffer.
+type Buffer interface {
+	Write([]byte) (int, error)
+	Len() int64
+	ReadFrom(io.ReadCloser) (int64, error)
+	Bytes() []byte
 }
 
 //--------------------------------------------------------------------------------
