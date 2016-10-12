@@ -127,22 +127,6 @@ func getTLSMockServer(handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewTLSServer(handler)
 }
 
-func TestFormatLogLevel(t *testing.T) {
-	assert := assert.New(t)
-
-	errors := formatLogLevel(HTTPRequestLogLevelErrors)
-	assert.Equal("ERRORS", errors)
-
-	verbose := formatLogLevel(HTTPRequestLogLevelVerbose)
-	assert.Equal("VERBOSE", verbose)
-
-	debug := formatLogLevel(HTTPRequestLogLevelDebug)
-	assert.Equal("DEBUG", debug)
-
-	unknown := formatLogLevel(-1)
-	assert.Equal("UNKNOWN", unknown)
-}
-
 func TestCreateHttpRequestWithUrl(t *testing.T) {
 	assert := assert.New(t)
 	sr := NewHTTPRequest().
