@@ -182,6 +182,8 @@ type HTTPRequest struct {
 
 	postedFiles []postedFile
 
+	responseBuffer Buffer
+
 	transport                       *http.Transport
 	createTransportHandler          CreateTransportHandler
 	incomingResponseHandler         ResponseHandler
@@ -281,7 +283,7 @@ func (hr *HTTPRequest) logf(logLevel int, format string, args ...interface{}) {
 	}
 }
 
-func (hr *HTTPRequest) log(logLevel int, args ...interface{}) {
+func (hr *HTTPRequest) logln(logLevel int, args ...interface{}) {
 	if hr.Logger != nil && logLevel <= hr.LogLevel {
 		prefix := getLoggingPrefix(logLevel)
 		message := fmt.Sprint(args...)
@@ -474,6 +476,12 @@ func (hr *HTTPRequest) AsDelete() *HTTPRequest {
 	return hr
 }
 
+// WithResponseBuffer sets the response buffer for the request (if you want to re-use one).
+func (hr *HTTPRequest) WithResponseBuffer(buffer Buffer) *HTTPRequest {
+	hr.responseBuffer = buffer
+	return hr
+}
+
 // WithJSONBody sets the post body raw to be the json representation of an object.
 func (hr *HTTPRequest) WithJSONBody(object interface{}) *HTTPRequest {
 	return hr.WithSerializedBody(object, serializeJSON).WithContentType("application/json")
@@ -628,12 +636,23 @@ func (hr *HTTPRequest) ExecuteWithMeta() (*HTTPResponseMeta, error) {
 	meta := NewHTTPResponseMeta(res)
 	if res != nil && res.Body != nil {
 		defer res.Body.Close()
-		contents, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			return nil, exception.Wrap(err)
+		if hr.responseBuffer != nil {
+			contentLength, err := hr.responseBuffer.ReadFrom(res.Body)
+			if err != nil {
+				return nil, exception.Wrap(err)
+			}
+			meta.ContentLength = contentLength
+			if hr.incomingResponseHandler != nil {
+				hr.logResponse(meta, hr.responseBuffer.Bytes(), hr.state)
+			}
+		} else {
+			contents, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				return nil, exception.Wrap(err)
+			}
+			meta.ContentLength = int64(len(contents))
+			hr.logResponse(meta, contents, hr.state)
 		}
-		meta.ContentLength = int64(len(contents))
-		hr.logResponse(meta, contents, hr.state)
 	}
 
 	return meta, nil
@@ -718,14 +737,15 @@ func (hr *HTTPRequest) requiresCustomTransport() bool {
 
 func (hr *HTTPRequest) getHTTPTransport() (*http.Transport, error) {
 	if hr.transport != nil {
-		hr.log(HTTPRequestLogLevelDebug, "Service Request ==> Using Provided Transport\n")
+		hr.logln(HTTPRequestLogLevelDebug, "Service Request ==> Using Provided Transport")
 		return hr.transport, nil
 	}
-	return hr.createHTTPTransport()
+	return hr.CreateHTTPTransport()
 }
 
-func (hr *HTTPRequest) createHTTPTransport() (*http.Transport, error) {
-	hr.log(HTTPRequestLogLevelDebug, "Service Request ==> Creating Custom Transport\n")
+// CreateHTTPTransport returns the the custom transport for the request.
+func (hr *HTTPRequest) CreateHTTPTransport() (*http.Transport, error) {
+	hr.logln(HTTPRequestLogLevelDebug, "Service Request ==> Creating Custom Transport")
 	transport := &http.Transport{
 		DisableCompression: false,
 		DisableKeepAlives:  !hr.KeepAlive,
@@ -834,6 +854,14 @@ func (hr *HTTPRequest) logResponse(res *HTTPResponseMeta, responseBody []byte, s
 		hr.incomingResponseHandler(res, responseBody)
 	}
 	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", string(responseBody))
+}
+
+// Buffer is a type that supplies two methods found on bytes.Buffer.
+type Buffer interface {
+	Write([]byte) (int, error)
+	Len() int64
+	ReadFrom(io.ReadCloser) (int64, error)
+	Bytes() []byte
 }
 
 //--------------------------------------------------------------------------------
