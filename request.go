@@ -131,6 +131,16 @@ type Deserializer func(body []byte) error
 type Serializer func(value interface{}) ([]byte, error)
 
 //--------------------------------------------------------------------------------
+// postedFile
+//--------------------------------------------------------------------------------
+
+type postedFile struct {
+	Key          string
+	FileName     string
+	FileContents io.Reader
+}
+
+//--------------------------------------------------------------------------------
 // HTTPRequest
 //--------------------------------------------------------------------------------
 
@@ -169,6 +179,8 @@ type HTTPRequest struct {
 	LogLevel int
 
 	state interface{}
+
+	postedFiles []postedFile
 
 	transport                       *http.Transport
 	createTransportHandler          CreateTransportHandler
@@ -391,6 +403,12 @@ func (hr *HTTPRequest) WithPostDataFromObject(object interface{}) *HTTPRequest {
 		hr.WithPostData(item.Key, item.Value)
 	}
 
+	return hr
+}
+
+// WithPostedFile adds a posted file to the multipart form elements of the request.
+func (hr *HTTPRequest) WithPostedFile(key, fileName string, fileContents io.Reader) *HTTPRequest {
+	hr.postedFiles = append(hr.postedFiles, postedFile{Key: key, FileName: fileName, FileContents: fileContents})
 	return hr
 }
 
