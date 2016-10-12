@@ -113,9 +113,9 @@ type HTTPResponseMeta struct {
 type CreateTransportHandler func(host *url.URL, transport *http.Transport)
 
 // ResponseHandler is a receiver for `OnResponse`.
-type ResponseHandler func(meta *HTTPResponseMeta, content []byte)
+type ResponseHandler func(req *HTTPRequestMeta, meta *HTTPResponseMeta, content []byte)
 
-// StatefulResponseHandler is a receiver for `OnResponse`.
+// StatefulResponseHandler is a receiver for `OnResponse` that includes a state object.
 type StatefulResponseHandler func(req *HTTPRequestMeta, res *HTTPResponseMeta, content []byte, state interface{})
 
 // OutgoingRequestHandler is a receiver for `OnRequest`.
@@ -851,7 +851,7 @@ func (hr *HTTPRequest) logResponse(res *HTTPResponseMeta, responseBody []byte, s
 		hr.statefulIncomingResponseHandler(hr.AsMeta(), res, responseBody, state)
 	}
 	if hr.incomingResponseHandler != nil {
-		hr.incomingResponseHandler(res, responseBody)
+		hr.incomingResponseHandler(hr.AsMeta(), res, responseBody)
 	}
 	hr.logf(HTTPRequestLogLevelVerbose, "Service Response ==> %s", string(responseBody))
 }
