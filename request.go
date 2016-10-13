@@ -304,7 +304,7 @@ func (hr *HTTPRequest) WithPathf(format string, args ...interface{}) *HTTPReques
 
 // WithCombinedPath sets the path component of the host url by combining the input path segments.
 func (hr *HTTPRequest) WithCombinedPath(components ...string) *HTTPRequest {
-	hr.Path = util.CombinePathComponents(components...)
+	hr.Path = util.String.CombinePathComponents(components...)
 	return hr
 }
 
@@ -366,7 +366,7 @@ func (hr *HTTPRequest) WithPostData(field string, value string) *HTTPRequest {
 // Remarks; this differs from `WithJSONBody` in that it sets individual post form fields
 // for each member of the object.
 func (hr *HTTPRequest) WithPostDataFromObject(object interface{}) *HTTPRequest {
-	postDatums := util.DecomposeToPostDataAsJSON(object)
+	postDatums := util.Reflection.DecomposeToPostDataAsJSON(object)
 
 	for _, item := range postDatums {
 		hr.WithPostData(item.Key, item.Value)
