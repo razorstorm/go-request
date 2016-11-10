@@ -663,6 +663,31 @@ func (hr *HTTPRequest) ExecuteWithMeta() (*HTTPResponseMeta, error) {
 	return meta, nil
 }
 
+// FetchBytesWithMeta fetches the response as bytes with meta.
+func (hr *HTTPRequest) FetchBytesWithMeta() ([]byte, *HTTPResponseMeta, error) {
+	res, err := hr.FetchRawResponse()
+	resMeta := NewHTTPResponseMeta(res)
+	if err != nil {
+		return nil, resMeta, exception.Wrap(err)
+	}
+	defer res.Body.Close()
+
+	bytes, readErr := ioutil.ReadAll(res.Body)
+	if readErr != nil {
+		return nil, resMeta, exception.Wrap(readErr)
+	}
+
+	resMeta.ContentLength = int64(len(bytes))
+	hr.logResponse(resMeta, bytes, hr.state)
+	return bytes, resMeta, nil
+}
+
+// FetchBytes fetches the response as bytes.
+func (hr *HTTPRequest) FetchBytes() ([]byte, error) {
+	contents, _, err := hr.FetchBytesWithMeta()
+	return contents, err
+}
+
 // FetchString returns the body of the response as a string.
 func (hr *HTTPRequest) FetchString() (string, error) {
 	responseStr, _, err := hr.FetchStringWithMeta()
@@ -671,21 +696,8 @@ func (hr *HTTPRequest) FetchString() (string, error) {
 
 // FetchStringWithMeta returns the body of the response as a string in addition to the response metadata.
 func (hr *HTTPRequest) FetchStringWithMeta() (string, *HTTPResponseMeta, error) {
-	res, err := hr.FetchRawResponse()
-	resMeta := NewHTTPResponseMeta(res)
-	if err != nil {
-		return util.StringEmpty, resMeta, exception.Wrap(err)
-	}
-	defer res.Body.Close()
-
-	bytes, readErr := ioutil.ReadAll(res.Body)
-	if readErr != nil {
-		return util.StringEmpty, resMeta, exception.Wrap(readErr)
-	}
-
-	resMeta.ContentLength = int64(len(bytes))
-	hr.logResponse(resMeta, bytes, hr.state)
-	return string(bytes), resMeta, nil
+	contents, meta, err := hr.FetchBytesWithMeta()
+	return string(contents), meta, err
 }
 
 // FetchJSONToObject unmarshals the response as json to an object.
