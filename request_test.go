@@ -2,7 +2,6 @@ package request
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/blendlabs/go-assert"
+	exception "github.com/blendlabs/go-exception"
 )
 
 type statusObject struct {
@@ -66,12 +66,12 @@ func writeJSON(w http.ResponseWriter, meta *HTTPResponseMeta, response interface
 		}
 
 		w.WriteHeader(meta.StatusCode)
-		count, writeError := w.Write(bytes)
+		count, err := w.Write(bytes)
 		if count == 0 {
-			return errors.New("WriteJson : Didnt write any bytes.")
+			return exception.New("writeJSON didnt write any bytes")
 		}
-		if writeError != nil {
-			return writeError
+		if err != nil {
+			return err
 		}
 	} else {
 		return err
