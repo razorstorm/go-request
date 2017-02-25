@@ -31,6 +31,18 @@ func WriteOutgoingRequest(writer logger.Logger, ts logger.TimeSource, req *HTTPR
 	writer.WriteWithTimeSource(ts, buffer.Bytes())
 }
 
+// WriteOutgoingRequestBody is a helper method to write outgoing request bodies to a logger writer.
+func WriteOutgoingRequestBody(writer logger.Logger, ts logger.TimeSource, req *HTTPRequestMeta) {
+	buffer := writer.GetBuffer()
+	defer writer.PutBuffer(buffer)
+	buffer.WriteString(writer.Colorize(string(Event), logger.ColorGreen))
+	buffer.WriteRune(logger.RuneSpace)
+	buffer.WriteString("request body")
+	buffer.WriteRune(logger.RuneNewline)
+	buffer.Write(req.Body)
+	writer.WriteWithTimeSource(ts, buffer.Bytes())
+}
+
 // NewOutgoingResponseListener creates a new logger handler for `EventFlagOutgoingResponse` events.
 func NewOutgoingResponseListener(handler func(writer logger.Logger, ts logger.TimeSource, req *HTTPRequestMeta, res *HTTPResponseMeta, body []byte)) logger.EventListener {
 	return func(writer logger.Logger, ts logger.TimeSource, eventFlag logger.EventFlag, state ...interface{}) {
