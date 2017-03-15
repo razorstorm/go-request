@@ -52,6 +52,11 @@ func MockResponse(verb string, url string, gen MockedResponseGenerator) {
 	mocksLock.Lock()
 	defer mocksLock.Unlock()
 
+	MockResponseUnsafe(verb, url, gen)
+}
+
+// MockResponseUnsafe mocks are response with a given generator without locking.
+func MockResponseUnsafe(verb string, url string, gen MockedResponseGenerator) {
 	isMocked = true
 	if mocks == nil {
 		mocks = map[string]MockedResponseGenerator{}
