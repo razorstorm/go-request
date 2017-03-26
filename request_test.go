@@ -40,19 +40,19 @@ func newTestObject() testObject {
 	return to
 }
 
-func okMeta() *HTTPResponseMeta {
-	return &HTTPResponseMeta{StatusCode: http.StatusOK}
+func okMeta() *ResponseMeta {
+	return &ResponseMeta{StatusCode: http.StatusOK}
 }
 
-func errorMeta() *HTTPResponseMeta {
-	return &HTTPResponseMeta{StatusCode: http.StatusInternalServerError}
+func errorMeta() *ResponseMeta {
+	return &ResponseMeta{StatusCode: http.StatusInternalServerError}
 }
 
-func notFoundMeta() *HTTPResponseMeta {
-	return &HTTPResponseMeta{StatusCode: http.StatusNotFound}
+func notFoundMeta() *ResponseMeta {
+	return &ResponseMeta{StatusCode: http.StatusNotFound}
 }
 
-func writeJSON(w http.ResponseWriter, meta *HTTPResponseMeta, response interface{}) error {
+func writeJSON(w http.ResponseWriter, meta *ResponseMeta, response interface{}) error {
 	bytes, err := json.Marshal(response)
 	if err == nil {
 		if !isEmpty(meta.ContentType) {
@@ -79,7 +79,7 @@ func writeJSON(w http.ResponseWriter, meta *HTTPResponseMeta, response interface
 	return nil
 }
 
-func mockEchoEndpoint(meta *HTTPResponseMeta) *httptest.Server {
+func mockEchoEndpoint(meta *ResponseMeta) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if !isEmpty(meta.ContentType) {
 			w.Header().Set("Content-Type", meta.ContentType)
@@ -99,7 +99,7 @@ func mockEchoEndpoint(meta *HTTPResponseMeta) *httptest.Server {
 
 type validationFunc func(r *http.Request)
 
-func mockEndpoint(meta *HTTPResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
+func mockEndpoint(meta *ResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if validations != nil {
 			validations(r)
@@ -109,7 +109,7 @@ func mockEndpoint(meta *HTTPResponseMeta, returnWithObject interface{}, validati
 	})
 }
 
-func mockTLSEndpoint(meta *HTTPResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
+func mockTLSEndpoint(meta *ResponseMeta, returnWithObject interface{}, validations validationFunc) *httptest.Server {
 	return getMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if validations != nil {
 			validations(r)
@@ -129,7 +129,7 @@ func getTLSMockServer(handler http.HandlerFunc) *httptest.Server {
 
 func TestCreateHttpRequestWithUrl(t *testing.T) {
 	assert := assert.New(t)
-	sr := NewHTTPRequest().
+	sr := New().
 		WithURL("http://localhost:5001/api/v1/path/2?env=dev&foo=bar")
 
 	assert.Equal("http", sr.Scheme)
@@ -146,7 +146,7 @@ func TestHttpGet(t *testing.T) {
 	returnedObject := newTestObject()
 	ts := mockEndpoint(okMeta(), returnedObject, nil)
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsGet().WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsGet().WithURL(ts.URL).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -165,7 +165,7 @@ func TestHttpGetWithExpiringTimeout(t *testing.T) {
 	testObject := testObject{}
 
 	before := time.Now()
-	_, err := NewHTTPRequest().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
+	_, err := New().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).JSONWithMeta(&testObject)
 	after := time.Now()
 
 	diff := after.Sub(before)
@@ -180,7 +180,7 @@ func TestHttpGetWithTimeout(t *testing.T) {
 		assert.Equal("GET", r.Method)
 	})
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsGet().WithTimeout(250 * time.Millisecond).WithURL(ts.URL).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -191,7 +191,7 @@ func TestTlsHttpGet(t *testing.T) {
 	returnedObject := newTestObject()
 	ts := mockTLSEndpoint(okMeta(), returnedObject, nil)
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsGet().WithURL(ts.URL).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsGet().WithURL(ts.URL).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -207,7 +207,7 @@ func TestHttpPostWithPostData(t *testing.T) {
 	})
 
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithPostData("foo", "bar").FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithPostData("foo", "bar").JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -231,9 +231,9 @@ func TestHttpPostWithPostDataFromObject(t *testing.T) {
 	p := parameterObject{ID: "test", Name: "this is the name", Values: []int{1, 2, 3, 4}}
 
 	testObject := testObject{}
-	req := NewHTTPRequest().AsPost().WithURL(ts.URL).WithPostDataFromObject(p)
+	req := New().AsPost().WithURL(ts.URL).WithPostDataFromObject(p)
 	assert.NotEmpty(req.PostData)
-	meta, err := req.FetchJSONToObjectWithMeta(&testObject)
+	meta, err := req.JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -250,7 +250,7 @@ func TestHttpPostWithBasicAuth(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithBasicAuth("test_user", "test_password").WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithBasicAuth("test_user", "test_password").WithPostBody([]byte(`{"status":"ok!"}`)).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -265,7 +265,7 @@ func TestHttpPostWithHeader(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithHeader("test_header", "foosballs").WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithHeader("test_header", "foosballs").WithPostBody([]byte(`{"status":"ok!"}`)).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -290,7 +290,7 @@ func TestHttpPostWithCookies(t *testing.T) {
 	})
 
 	testObject := statusObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithCookie(cookie).WithRawBody([]byte(`{"status":"ok!"}`)).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithCookie(cookie).WithPostBody([]byte(`{"status":"ok!"}`)).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal("ok!", testObject.Status)
@@ -303,7 +303,7 @@ func TestHttpPostWithJSONBody(t *testing.T) {
 	ts := mockEchoEndpoint(okMeta())
 
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithJSONBody(&returnedObject).FetchJSONToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithPostBodyAsJSON(&returnedObject).JSONWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -316,7 +316,7 @@ func TestHttpPostWithXMLBody(t *testing.T) {
 	ts := mockEchoEndpoint(okMeta())
 
 	testObject := testObject{}
-	meta, err := NewHTTPRequest().AsPost().WithURL(ts.URL).WithXMLBody(&returnedObject).FetchXMLToObjectWithMeta(&testObject)
+	meta, err := New().AsPost().WithURL(ts.URL).WithPostBodyAsXML(&returnedObject).XMLWithMeta(&testObject)
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
 	assert.Equal(returnedObject, testObject)
@@ -329,9 +329,9 @@ func TestMockedRequests(t *testing.T) {
 		assert.True(false, "This shouldnt run in a mocked context.")
 	})
 
-	verifyString, meta, err := NewHTTPRequest().AsPut().WithRawBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error) {
+	verifyString, meta, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *ResponseMeta, []byte, error) {
 		return true, okMeta(), []byte("ok!"), nil
-	}).FetchStringWithMeta()
+	}).StringWithMeta()
 
 	assert.Nil(err)
 	assert.Equal(http.StatusOK, meta.StatusCode)
@@ -344,9 +344,9 @@ func TestOnRequestHook(t *testing.T) {
 	ts := mockEchoEndpoint(okMeta())
 
 	called := false
-	_, _, err := NewHTTPRequest().AsPut().WithRawBody([]byte("foobar")).WithURL(ts.URL).OnRequest(func(meta *HTTPRequestMeta) {
+	_, _, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).OnRequest(func(meta *Meta) {
 		called = true
-	}).FetchStringWithMeta()
+	}).StringWithMeta()
 	assert.Nil(err)
 	assert.True(called)
 }

@@ -28,7 +28,7 @@ var (
 )
 
 // MockedResponseInjector injects the mocked response into the request response.
-func MockedResponseInjector(verb string, workingURL *url.URL) (bool, *HTTPResponseMeta, []byte, error) {
+func MockedResponseInjector(verb string, workingURL *url.URL) (bool, *ResponseMeta, []byte, error) {
 	if isMocked {
 		mocksLock.Lock()
 		storedURL := fmt.Sprintf("%s_%s", verb, workingURL.String())
@@ -36,7 +36,7 @@ func MockedResponseInjector(verb string, workingURL *url.URL) (bool, *HTTPRespon
 		mocksLock.Unlock()
 		if ok {
 			mockResponse := mockResponseHandler()
-			meta := &HTTPResponseMeta{}
+			meta := &ResponseMeta{}
 			meta.StatusCode = mockResponse.StatusCode
 			meta.ContentLength = int64(len(mockResponse.ResponseBody))
 			return true, meta, mockResponse.ResponseBody, mockResponse.Error

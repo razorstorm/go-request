@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/blendlabs/go-exception"
@@ -19,142 +18,17 @@ import (
 	"github.com/blendlabs/go-util"
 )
 
-//--------------------------------------------------------------------------------
-// HTTPRequestMeta
-//--------------------------------------------------------------------------------
-
-// NewHTTPRequestMeta returns a new meta object for a request.
-func NewHTTPRequestMeta(req *http.Request) *HTTPRequestMeta {
-	return &HTTPRequestMeta{
-		Verb:    req.Method,
-		URL:     req.URL,
-		Headers: req.Header,
+// New returns a new HTTPRequest instance.
+func New() *Request {
+	return &Request{
+		Scheme:    "http",
+		Verb:      "GET",
+		KeepAlive: false,
 	}
 }
 
-// NewHTTPRequestMetaWithBody returns a new meta object for a request and reads the body.
-func NewHTTPRequestMetaWithBody(req *http.Request) (*HTTPRequestMeta, error) {
-	body, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		return nil, err
-	}
-	defer req.Body.Close()
-	return &HTTPRequestMeta{
-		Verb:    req.Method,
-		URL:     req.URL,
-		Headers: req.Header,
-		Body:    body,
-	}, nil
-}
-
-// HTTPRequestMeta is a summary of the request meta useful for logging.
-type HTTPRequestMeta struct {
-	StartTime time.Time
-	Verb      string
-	URL       *url.URL
-	Headers   http.Header
-	Body      []byte
-}
-
-//--------------------------------------------------------------------------------
-// HttpResponseMeta
-//--------------------------------------------------------------------------------
-
-// NewHTTPResponseMeta returns a new meta object for a response.
-func NewHTTPResponseMeta(res *http.Response) *HTTPResponseMeta {
-	meta := &HTTPResponseMeta{}
-
-	if res == nil {
-		return meta
-	}
-
-	meta.CompleteTime = time.Now().UTC()
-	meta.StatusCode = res.StatusCode
-	meta.ContentLength = res.ContentLength
-
-	contentTypeHeader := res.Header["Content-Type"]
-	if contentTypeHeader != nil && len(contentTypeHeader) > 0 {
-		meta.ContentType = strings.Join(contentTypeHeader, ";")
-	}
-
-	contentEncodingHeader := res.Header["Content-Encoding"]
-	if contentEncodingHeader != nil && len(contentEncodingHeader) > 0 {
-		meta.ContentEncoding = strings.Join(contentEncodingHeader, ";")
-	}
-
-	meta.Headers = res.Header
-	return meta
-}
-
-// HTTPResponseMeta is just the meta information for an http response.
-type HTTPResponseMeta struct {
-	CompleteTime    time.Time
-	StatusCode      int
-	ContentLength   int64
-	ContentEncoding string
-	ContentType     string
-	Headers         http.Header
-}
-
-// CreateTransportHandler is a receiver for `OnCreateTransport`.
-type CreateTransportHandler func(host *url.URL, transport *http.Transport)
-
-// ResponseHandler is a receiver for `OnResponse`.
-type ResponseHandler func(req *HTTPRequestMeta, meta *HTTPResponseMeta, content []byte)
-
-// StatefulResponseHandler is a receiver for `OnResponse` that includes a state object.
-type StatefulResponseHandler func(req *HTTPRequestMeta, res *HTTPResponseMeta, content []byte, state interface{})
-
-// OutgoingRequestHandler is a receiver for `OnRequest`.
-type OutgoingRequestHandler func(req *HTTPRequestMeta)
-
-// MockedResponseHandler is a receiver for `WithMockedResponse`.
-type MockedResponseHandler func(verb string, url *url.URL) (bool, *HTTPResponseMeta, []byte, error)
-
-// Deserializer is a function that does things with the response body.
-type Deserializer func(body []byte) error
-
-// Serializer is a function that turns an object into raw data.
-type Serializer func(value interface{}) ([]byte, error)
-
-//--------------------------------------------------------------------------------
-// PostedFile
-//--------------------------------------------------------------------------------
-
-// PostedFile represents a file to post with the request.
-type PostedFile struct {
-	Key          string
-	FileName     string
-	FileContents io.Reader
-}
-
-//--------------------------------------------------------------------------------
-// Buffer
-//--------------------------------------------------------------------------------
-
-// Buffer is a type that supplies two methods found on bytes.Buffer.
-type Buffer interface {
-	Write([]byte) (int, error)
-	Len() int64
-	ReadFrom(io.ReadCloser) (int64, error)
-	Bytes() []byte
-}
-
-//--------------------------------------------------------------------------------
-// HTTPRequest
-//--------------------------------------------------------------------------------
-
-// NewHTTPRequest returns a new HTTPRequest instance.
-func NewHTTPRequest() *HTTPRequest {
-	hr := HTTPRequest{}
-	hr.Scheme = "http"
-	hr.Verb = "GET"
-	hr.KeepAlive = false
-	return &hr
-}
-
-// HTTPRequest makes http requests.
-type HTTPRequest struct {
+// Request makes http requests.
+type Request struct {
 	Scheme              string
 	Host                string
 	Path                string
@@ -172,18 +46,15 @@ type HTTPRequest struct {
 	SkipTLSVerification bool
 	Body                []byte
 	KeepAlive           bool
+	Label               string
 
-	Label string
-
-	logger *logger.Agent
-
-	state interface{}
-
-	postedFiles []PostedFile
-
+	logger         *logger.Agent
+	state          interface{}
+	postedFiles    []PostedFile
 	responseBuffer Buffer
+	requestStart   time.Time
 
-	requestStart time.Time
+	err error
 
 	transport                       *http.Transport
 	createTransportHandler          CreateTransportHandler
@@ -194,133 +65,135 @@ type HTTPRequest struct {
 }
 
 // OnResponse configures an event receiver.
-func (hr *HTTPRequest) OnResponse(hook ResponseHandler) *HTTPRequest {
+func (hr *Request) OnResponse(hook ResponseHandler) *Request {
 	hr.incomingResponseHandler = hook
 	return hr
 }
 
 // OnResponseStateful configures an event receiver that includes the request state.
-func (hr *HTTPRequest) OnResponseStateful(hook StatefulResponseHandler) *HTTPRequest {
+func (hr *Request) OnResponseStateful(hook StatefulResponseHandler) *Request {
 	hr.statefulIncomingResponseHandler = hook
 	return hr
 }
 
 // OnCreateTransport configures an event receiver.
-func (hr *HTTPRequest) OnCreateTransport(hook CreateTransportHandler) *HTTPRequest {
+func (hr *Request) OnCreateTransport(hook CreateTransportHandler) *Request {
 	hr.createTransportHandler = hook
 	return hr
 }
 
 // OnRequest configures an event receiver.
-func (hr *HTTPRequest) OnRequest(hook OutgoingRequestHandler) *HTTPRequest {
+func (hr *Request) OnRequest(hook OutgoingRequestHandler) *Request {
 	hr.outgoingRequestHandler = hook
 	return hr
 }
 
 // WithState adds a state object to the request for later usage.
-func (hr *HTTPRequest) WithState(state interface{}) *HTTPRequest {
+func (hr *Request) WithState(state interface{}) *Request {
 	hr.state = state
 	return hr
 }
 
 // WithLabel gives the request a logging label.
-func (hr *HTTPRequest) WithLabel(label string) *HTTPRequest {
+func (hr *Request) WithLabel(label string) *Request {
 	hr.Label = label
 	return hr
 }
 
 // ShouldSkipTLSVerification skips the bad certificate checking on TLS requests.
-func (hr *HTTPRequest) ShouldSkipTLSVerification() *HTTPRequest {
+func (hr *Request) ShouldSkipTLSVerification() *Request {
 	hr.SkipTLSVerification = true
 	return hr
 }
 
 // WithMockedResponse mocks a request response.
-func (hr *HTTPRequest) WithMockedResponse(hook MockedResponseHandler) *HTTPRequest {
+func (hr *Request) WithMockedResponse(hook MockedResponseHandler) *Request {
 	hr.mockHandler = hook
 	return hr
 }
 
 // WithLogger enables logging with HTTPRequestLogLevelErrors.
-func (hr *HTTPRequest) WithLogger(agent *logger.Agent) *HTTPRequest {
+func (hr *Request) WithLogger(agent *logger.Agent) *Request {
 	hr.logger = agent
 	return hr
 }
 
 // Logger returns the request diagnostics agent.
-func (hr *HTTPRequest) Logger() *logger.Agent {
+func (hr *Request) Logger() *logger.Agent {
 	return hr.logger
 }
 
 // WithTransport sets a transport for the request.
-func (hr *HTTPRequest) WithTransport(transport *http.Transport) *HTTPRequest {
+func (hr *Request) WithTransport(transport *http.Transport) *Request {
 	hr.transport = transport
 	return hr
 }
 
 // WithKeepAlives sets if the request should use the `Connection=keep-alive` header or not.
-func (hr *HTTPRequest) WithKeepAlives() *HTTPRequest {
+func (hr *Request) WithKeepAlives() *Request {
 	hr.KeepAlive = true
 	hr = hr.WithHeader("Connection", "keep-alive")
 	return hr
 }
 
 // WithContentType sets the `Content-Type` header for the request.
-func (hr *HTTPRequest) WithContentType(contentType string) *HTTPRequest {
+func (hr *Request) WithContentType(contentType string) *Request {
 	hr.ContentType = contentType
 	return hr
 }
 
 // WithScheme sets the scheme, or protocol, of the request.
-func (hr *HTTPRequest) WithScheme(scheme string) *HTTPRequest {
+func (hr *Request) WithScheme(scheme string) *Request {
 	hr.Scheme = scheme
 	return hr
 }
 
 // WithHost sets the target url host for the request.
-func (hr *HTTPRequest) WithHost(host string) *HTTPRequest {
+func (hr *Request) WithHost(host string) *Request {
 	hr.Host = host
 	return hr
 }
 
 // WithPath sets the path component of the host url..
-func (hr *HTTPRequest) WithPath(path string) *HTTPRequest {
+func (hr *Request) WithPath(path string) *Request {
 	hr.Path = path
 	return hr
 }
 
 // WithPathf sets the path component of the host url by the format and arguments.
-func (hr *HTTPRequest) WithPathf(format string, args ...interface{}) *HTTPRequest {
+func (hr *Request) WithPathf(format string, args ...interface{}) *Request {
 	hr.Path = fmt.Sprintf(format, args...)
 	return hr
 }
 
 // WithCombinedPath sets the path component of the host url by combining the input path segments.
-func (hr *HTTPRequest) WithCombinedPath(components ...string) *HTTPRequest {
+func (hr *Request) WithCombinedPath(components ...string) *Request {
 	hr.Path = util.String.CombinePathComponents(components...)
 	return hr
 }
 
 // WithURL sets the request target url whole hog.
-func (hr *HTTPRequest) WithURL(urlString string) *HTTPRequest {
-	workingURL, _ := url.Parse(urlString)
+func (hr *Request) WithURL(urlString string) *Request {
+	workingURL, err := url.Parse(urlString)
+	if err != nil {
+		hr.err = err
+		return hr
+	}
+
 	hr.Scheme = workingURL.Scheme
 	hr.Host = workingURL.Host
 	hr.Path = workingURL.Path
-	params := strings.Split(workingURL.RawQuery, "&")
-	hr.QueryString = url.Values{}
-	var keyValue []string
-	for _, param := range params {
-		if param != "" {
-			keyValue = strings.Split(param, "=")
-			hr.QueryString.Set(keyValue[0], keyValue[1])
-		}
+	queryValues, err := url.ParseQuery(workingURL.RawQuery)
+	if err != nil {
+		hr.err = err
+		return hr
 	}
+	hr.QueryString = queryValues
 	return hr
 }
 
 // WithHeader sets a header on the request.
-func (hr *HTTPRequest) WithHeader(field string, value string) *HTTPRequest {
+func (hr *Request) WithHeader(field string, value string) *Request {
 	if hr.Header == nil {
 		hr.Header = http.Header{}
 	}
@@ -329,7 +202,7 @@ func (hr *HTTPRequest) WithHeader(field string, value string) *HTTPRequest {
 }
 
 // WithQueryString sets a query string value for the host url of the request.
-func (hr *HTTPRequest) WithQueryString(field string, value string) *HTTPRequest {
+func (hr *Request) WithQueryString(field string, value string) *Request {
 	if hr.QueryString == nil {
 		hr.QueryString = url.Values{}
 	}
@@ -338,7 +211,7 @@ func (hr *HTTPRequest) WithQueryString(field string, value string) *HTTPRequest 
 }
 
 // WithCookie sets a cookie for the request.
-func (hr *HTTPRequest) WithCookie(cookie *http.Cookie) *HTTPRequest {
+func (hr *Request) WithCookie(cookie *http.Cookie) *Request {
 	if hr.Cookies == nil {
 		hr.Cookies = []*http.Cookie{}
 	}
@@ -347,7 +220,7 @@ func (hr *HTTPRequest) WithCookie(cookie *http.Cookie) *HTTPRequest {
 }
 
 // WithPostData sets a post data value for the request.
-func (hr *HTTPRequest) WithPostData(field string, value string) *HTTPRequest {
+func (hr *Request) WithPostData(field string, value string) *Request {
 	if hr.PostData == nil {
 		hr.PostData = url.Values{}
 	}
@@ -358,7 +231,7 @@ func (hr *HTTPRequest) WithPostData(field string, value string) *HTTPRequest {
 // WithPostDataFromObject sets the post data for a request as json from a given object.
 // Remarks; this differs from `WithJSONBody` in that it sets individual post form fields
 // for each member of the object.
-func (hr *HTTPRequest) WithPostDataFromObject(object interface{}) *HTTPRequest {
+func (hr *Request) WithPostDataFromObject(object interface{}) *Request {
 	postDatums := util.Reflection.DecomposeToPostDataAsJSON(object)
 
 	for _, item := range postDatums {
@@ -369,13 +242,13 @@ func (hr *HTTPRequest) WithPostDataFromObject(object interface{}) *HTTPRequest {
 }
 
 // WithPostedFile adds a posted file to the multipart form elements of the request.
-func (hr *HTTPRequest) WithPostedFile(key, fileName string, fileContents io.Reader) *HTTPRequest {
+func (hr *Request) WithPostedFile(key, fileName string, fileContents io.Reader) *Request {
 	hr.postedFiles = append(hr.postedFiles, PostedFile{Key: key, FileName: fileName, FileContents: fileContents})
 	return hr
 }
 
 // WithBasicAuth sets the basic auth headers for a request.
-func (hr *HTTPRequest) WithBasicAuth(username, password string) *HTTPRequest {
+func (hr *Request) WithBasicAuth(username, password string) *Request {
 	hr.BasicAuthUsername = username
 	hr.BasicAuthPassword = password
 	return hr
@@ -383,107 +256,113 @@ func (hr *HTTPRequest) WithBasicAuth(username, password string) *HTTPRequest {
 
 // WithTimeout sets a timeout for the request.
 // Remarks: This timeout is enforced on client connect, not on request read + response.
-func (hr *HTTPRequest) WithTimeout(timeout time.Duration) *HTTPRequest {
+func (hr *Request) WithTimeout(timeout time.Duration) *Request {
 	hr.Timeout = timeout
 	return hr
 }
 
 // WithTLSCert sets a tls cert on the transport for the request.
-func (hr *HTTPRequest) WithTLSCert(certPath string) *HTTPRequest {
+func (hr *Request) WithTLSCert(certPath string) *Request {
 	hr.TLSCertPath = certPath
 	return hr
 }
 
 // WithTLSKey sets a tls key on the transport for the request.
-func (hr *HTTPRequest) WithTLSKey(keyPath string) *HTTPRequest {
+func (hr *Request) WithTLSKey(keyPath string) *Request {
 	hr.TLSKeyPath = keyPath
 	return hr
 }
 
 // WithVerb sets the http verb of the request.
-func (hr *HTTPRequest) WithVerb(verb string) *HTTPRequest {
+func (hr *Request) WithVerb(verb string) *Request {
 	hr.Verb = verb
 	return hr
 }
 
 // AsGet sets the http verb of the request to `GET`.
-func (hr *HTTPRequest) AsGet() *HTTPRequest {
+func (hr *Request) AsGet() *Request {
 	hr.Verb = "GET"
 	return hr
 }
 
 // AsPost sets the http verb of the request to `POST`.
-func (hr *HTTPRequest) AsPost() *HTTPRequest {
+func (hr *Request) AsPost() *Request {
 	hr.Verb = "POST"
 	return hr
 }
 
 // AsPut sets the http verb of the request to `PUT`.
-func (hr *HTTPRequest) AsPut() *HTTPRequest {
+func (hr *Request) AsPut() *Request {
 	hr.Verb = "PUT"
 	return hr
 }
 
 // AsPatch sets the http verb of the request to `PATCH`.
-func (hr *HTTPRequest) AsPatch() *HTTPRequest {
+func (hr *Request) AsPatch() *Request {
 	hr.Verb = "PATCH"
 	return hr
 }
 
 // AsDelete sets the http verb of the request to `DELETE`.
-func (hr *HTTPRequest) AsDelete() *HTTPRequest {
+func (hr *Request) AsDelete() *Request {
 	hr.Verb = "DELETE"
 	return hr
 }
 
+// AsOptions sets the http verb of the request to `OPTIONS`.
+func (hr *Request) AsOptions() *Request {
+	hr.Verb = "OPTIONS"
+	return hr
+}
+
 // WithResponseBuffer sets the response buffer for the request (if you want to re-use one).
-func (hr *HTTPRequest) WithResponseBuffer(buffer Buffer) *HTTPRequest {
+func (hr *Request) WithResponseBuffer(buffer Buffer) *Request {
 	hr.responseBuffer = buffer
 	return hr
 }
 
-// WithJSONBody sets the post body raw to be the json representation of an object.
-func (hr *HTTPRequest) WithJSONBody(object interface{}) *HTTPRequest {
-	return hr.WithSerializedBody(object, serializeJSON).WithContentType("application/json")
+// WithPostBodyAsJSON sets the post body raw to be the json representation of an object.
+func (hr *Request) WithPostBodyAsJSON(object interface{}) *Request {
+	return hr.WithPostBodySerialized(object, serializeJSON).WithContentType("application/json")
 }
 
-// WithXMLBody sets the post body raw to be the xml representation of an object.
-func (hr *HTTPRequest) WithXMLBody(object interface{}) *HTTPRequest {
-	return hr.WithSerializedBody(object, serializeXML).WithContentType("application/xml")
+// WithPostBodyAsXML sets the post body raw to be the xml representation of an object.
+func (hr *Request) WithPostBodyAsXML(object interface{}) *Request {
+	return hr.WithPostBodySerialized(object, serializeXML).WithContentType("application/xml")
 }
 
-// WithSerializedBody sets the post body with the results of the given serializer.
-func (hr *HTTPRequest) WithSerializedBody(object interface{}, serialize Serializer) *HTTPRequest {
+// WithPostBodySerialized sets the post body with the results of the given serializer.
+func (hr *Request) WithPostBodySerialized(object interface{}, serialize Serializer) *Request {
 	body, _ := serialize(object)
-	return hr.WithRawBody(body)
+	return hr.WithPostBody(body)
 }
 
-// WithRawBody sets the post body directly.
-func (hr *HTTPRequest) WithRawBody(body []byte) *HTTPRequest {
+// WithPostBody sets the post body directly.
+func (hr *Request) WithPostBody(body []byte) *Request {
 	hr.Body = body
 	return hr
 }
 
-// CreateURL returns the currently formatted request target url.
-func (hr *HTTPRequest) CreateURL() *url.URL {
+// URL returns the currently formatted request target url.
+func (hr *Request) URL() *url.URL {
 	workingURL := &url.URL{Scheme: hr.Scheme, Host: hr.Host, Path: hr.Path}
 	workingURL.RawQuery = hr.QueryString.Encode()
 	return workingURL
 }
 
-// AsRequestMeta returns the request as a HTTPRequestMeta.
-func (hr *HTTPRequest) AsRequestMeta() *HTTPRequestMeta {
-	return &HTTPRequestMeta{
+// Meta returns the request as a HTTPRequestMeta.
+func (hr Request) Meta() *Meta {
+	return &Meta{
 		StartTime: hr.requestStart,
 		Verb:      hr.Verb,
-		URL:       hr.CreateURL(),
-		Body:      hr.RequestBody(),
+		URL:       hr.URL(),
+		Body:      hr.PostBody(),
 		Headers:   hr.Headers(),
 	}
 }
 
-// RequestBody returns the current post body.
-func (hr *HTTPRequest) RequestBody() []byte {
+// PostBody returns the current post body.
+func (hr Request) PostBody() []byte {
 	if len(hr.Body) > 0 {
 		return hr.Body
 	} else if len(hr.PostData) > 0 {
@@ -493,7 +372,7 @@ func (hr *HTTPRequest) RequestBody() []byte {
 }
 
 // Headers returns the headers on the request.
-func (hr *HTTPRequest) Headers() http.Header {
+func (hr Request) Headers() http.Header {
 	headers := http.Header{}
 	for key, values := range hr.Header {
 		for _, value := range values {
@@ -509,15 +388,19 @@ func (hr *HTTPRequest) Headers() http.Header {
 	return headers
 }
 
-// CreateHTTPRequest returns a http.Request for the HTTPRequest.
-func (hr *HTTPRequest) CreateHTTPRequest() (*http.Request, error) {
-	workingURL := hr.CreateURL()
+// Request returns a http.Request for the HTTPRequest.
+func (hr *Request) Request() (*http.Request, error) {
+	if hr.err != nil {
+		return nil, hr.err
+	}
+
+	workingURL := hr.URL()
 
 	if len(hr.Body) > 0 && len(hr.PostData) > 0 {
 		return nil, exception.New("Cant set both a body and have post data.")
 	}
 
-	req, err := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBuffer(hr.RequestBody()))
+	req, err := http.NewRequest(hr.Verb, workingURL.String(), bytes.NewBuffer(hr.PostBody()))
 	if err != nil {
 		return nil, exception.Wrap(err)
 	}
@@ -542,11 +425,11 @@ func (hr *HTTPRequest) CreateHTTPRequest() (*http.Request, error) {
 	return req, nil
 }
 
-// FetchRawResponse makes the actual request but returns the underlying http.Response object.
-func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
-	req, reqErr := hr.CreateHTTPRequest()
-	if reqErr != nil {
-		return nil, reqErr
+// Fetch makes the actual request but returns the underlying http.Response object.
+func (hr *Request) Fetch() (*http.Response, error) {
+	req, err := hr.Request()
+	if err != nil {
+		return nil, err
 	}
 
 	hr.logRequest()
@@ -567,7 +450,7 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 
 	client := &http.Client{}
 	if hr.requiresCustomTransport() {
-		transport, transportErr := hr.getHTTPTransport()
+		transport, transportErr := hr.getTransport()
 		if transportErr != nil {
 			return nil, exception.Wrap(transportErr)
 		}
@@ -583,18 +466,18 @@ func (hr *HTTPRequest) FetchRawResponse() (*http.Response, error) {
 }
 
 // Execute makes the request but does not read the response.
-func (hr *HTTPRequest) Execute() error {
+func (hr *Request) Execute() error {
 	_, err := hr.ExecuteWithMeta()
 	return exception.Wrap(err)
 }
 
 // ExecuteWithMeta makes the request and returns the meta of the response.
-func (hr *HTTPRequest) ExecuteWithMeta() (*HTTPResponseMeta, error) {
-	res, err := hr.FetchRawResponse()
+func (hr *Request) ExecuteWithMeta() (*ResponseMeta, error) {
+	res, err := hr.Fetch()
 	if err != nil {
 		return nil, exception.Wrap(err)
 	}
-	meta := NewHTTPResponseMeta(res)
+	meta := NewResponseMeta(res)
 	if res != nil && res.Body != nil {
 		defer res.Body.Close()
 		if hr.responseBuffer != nil {
@@ -619,10 +502,10 @@ func (hr *HTTPRequest) ExecuteWithMeta() (*HTTPResponseMeta, error) {
 	return meta, nil
 }
 
-// FetchBytesWithMeta fetches the response as bytes with meta.
-func (hr *HTTPRequest) FetchBytesWithMeta() ([]byte, *HTTPResponseMeta, error) {
-	res, err := hr.FetchRawResponse()
-	resMeta := NewHTTPResponseMeta(res)
+// BytesWithMeta fetches the response as bytes with meta.
+func (hr *Request) BytesWithMeta() ([]byte, *ResponseMeta, error) {
+	res, err := hr.Fetch()
+	resMeta := NewResponseMeta(res)
 	if err != nil {
 		return nil, resMeta, exception.Wrap(err)
 	}
@@ -638,85 +521,80 @@ func (hr *HTTPRequest) FetchBytesWithMeta() ([]byte, *HTTPResponseMeta, error) {
 	return bytes, resMeta, nil
 }
 
-// FetchBytes fetches the response as bytes.
-func (hr *HTTPRequest) FetchBytes() ([]byte, error) {
-	contents, _, err := hr.FetchBytesWithMeta()
+// Bytes fetches the response as bytes.
+func (hr *Request) Bytes() ([]byte, error) {
+	contents, _, err := hr.BytesWithMeta()
 	return contents, err
 }
 
-// FetchString returns the body of the response as a string.
-func (hr *HTTPRequest) FetchString() (string, error) {
-	responseStr, _, err := hr.FetchStringWithMeta()
+// String returns the body of the response as a string.
+func (hr *Request) String() (string, error) {
+	responseStr, _, err := hr.StringWithMeta()
 	return responseStr, err
 }
 
-// FetchStringWithMeta returns the body of the response as a string in addition to the response metadata.
-func (hr *HTTPRequest) FetchStringWithMeta() (string, *HTTPResponseMeta, error) {
-	contents, meta, err := hr.FetchBytesWithMeta()
+// StringWithMeta returns the body of the response as a string in addition to the response metadata.
+func (hr *Request) StringWithMeta() (string, *ResponseMeta, error) {
+	contents, meta, err := hr.BytesWithMeta()
 	return string(contents), meta, err
 }
 
-// FetchJSONToObject unmarshals the response as json to an object.
-func (hr *HTTPRequest) FetchJSONToObject(destination interface{}) error {
+// JSON unmarshals the response as json to an object.
+func (hr *Request) JSON(destination interface{}) error {
 	_, err := hr.deserialize(newJSONDeserializer(destination))
 	return err
 }
 
-// FetchJSONToObjectWithMeta unmarshals the response as json to an object with metadata.
-func (hr *HTTPRequest) FetchJSONToObjectWithMeta(destination interface{}) (*HTTPResponseMeta, error) {
+// JSONWithMeta unmarshals the response as json to an object with metadata.
+func (hr *Request) JSONWithMeta(destination interface{}) (*ResponseMeta, error) {
 	return hr.deserialize(newJSONDeserializer(destination))
 }
 
-// FetchJSONToObjectWithErrorHandler unmarshals the response as json to an object with metadata or an error object depending on the meta.
-func (hr *HTTPRequest) FetchJSONToObjectWithErrorHandler(successObject interface{}, errorObject interface{}) (*HTTPResponseMeta, error) {
+// JSONWithErrorHandler unmarshals the response as json to an object with metadata or an error object depending on the meta.
+func (hr *Request) JSONWithErrorHandler(successObject interface{}, errorObject interface{}) (*ResponseMeta, error) {
 	return hr.deserializeWithError(newJSONDeserializer(successObject), newJSONDeserializer(errorObject))
 }
 
-// FetchJSONError unmarshals the response as json to an object if the meta indiciates an error.
-func (hr *HTTPRequest) FetchJSONError(errorObject interface{}) (*HTTPResponseMeta, error) {
-	return hr.deserializeWithError(nil, newJSONDeserializer(errorObject))
-}
-
-// FetchXMLToObject unmarshals the response as xml to an object with metadata.
-func (hr *HTTPRequest) FetchXMLToObject(destination interface{}) error {
+// XML unmarshals the response as xml to an object with metadata.
+func (hr *Request) XML(destination interface{}) error {
 	_, err := hr.deserialize(newXMLDeserializer(destination))
 	return err
 }
 
-// FetchXMLToObjectWithMeta unmarshals the response as xml to an object with metadata.
-func (hr *HTTPRequest) FetchXMLToObjectWithMeta(destination interface{}) (*HTTPResponseMeta, error) {
+// XMLWithMeta unmarshals the response as xml to an object with metadata.
+func (hr *Request) XMLWithMeta(destination interface{}) (*ResponseMeta, error) {
 	return hr.deserialize(newXMLDeserializer(destination))
 }
 
-// FetchXMLToObjectWithErrorHandler unmarshals the response as xml to an object with metadata or an error object depending on the meta.
-func (hr *HTTPRequest) FetchXMLToObjectWithErrorHandler(successObject interface{}, errorObject interface{}) (*HTTPResponseMeta, error) {
+// XMLWithErrorHandler unmarshals the response as xml to an object with metadata or an error object depending on the meta.
+func (hr *Request) XMLWithErrorHandler(successObject interface{}, errorObject interface{}) (*ResponseMeta, error) {
 	return hr.deserializeWithError(newXMLDeserializer(successObject), newXMLDeserializer(errorObject))
 }
 
-// FetchObjectWithSerializer runs a deserializer with the response.
-func (hr *HTTPRequest) FetchObjectWithSerializer(deserialize Deserializer) (*HTTPResponseMeta, error) {
+// Deserialized runs a deserializer with the response.
+func (hr *Request) Deserialized(deserialize Deserializer) (*ResponseMeta, error) {
 	meta, responseErr := hr.deserialize(func(body []byte) error {
 		return deserialize(body)
 	})
 	return meta, responseErr
 }
 
-func (hr *HTTPRequest) requiresCustomTransport() bool {
+func (hr *Request) requiresCustomTransport() bool {
 	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) ||
 		hr.transport != nil ||
 		hr.createTransportHandler != nil ||
 		hr.SkipTLSVerification
 }
 
-func (hr *HTTPRequest) getHTTPTransport() (*http.Transport, error) {
+func (hr *Request) getTransport() (*http.Transport, error) {
 	if hr.transport != nil {
 		return hr.transport, nil
 	}
-	return hr.CreateHTTPTransport()
+	return hr.Transport()
 }
 
-// CreateHTTPTransport returns the the custom transport for the request.
-func (hr *HTTPRequest) CreateHTTPTransport() (*http.Transport, error) {
+// Transport returns the the custom transport for the request.
+func (hr *Request) Transport() (*http.Transport, error) {
 	transport := &http.Transport{
 		DisableCompression: false,
 		DisableKeepAlives:  !hr.KeepAlive,
@@ -753,15 +631,15 @@ func (hr *HTTPRequest) CreateHTTPTransport() (*http.Transport, error) {
 	}
 
 	if hr.createTransportHandler != nil {
-		hr.createTransportHandler(hr.CreateURL(), transport)
+		hr.createTransportHandler(hr.URL(), transport)
 	}
 
 	return transport, nil
 }
 
-func (hr *HTTPRequest) deserialize(handler Deserializer) (*HTTPResponseMeta, error) {
-	res, err := hr.FetchRawResponse()
-	meta := NewHTTPResponseMeta(res)
+func (hr *Request) deserialize(handler Deserializer) (*ResponseMeta, error) {
+	res, err := hr.Fetch()
+	meta := NewResponseMeta(res)
 
 	if err != nil {
 		return meta, exception.Wrap(err)
@@ -781,9 +659,9 @@ func (hr *HTTPRequest) deserialize(handler Deserializer) (*HTTPResponseMeta, err
 	return meta, exception.Wrap(err)
 }
 
-func (hr *HTTPRequest) deserializeWithError(okHandler Deserializer, errorHandler Deserializer) (*HTTPResponseMeta, error) {
-	res, err := hr.FetchRawResponse()
-	meta := NewHTTPResponseMeta(res)
+func (hr *Request) deserializeWithError(okHandler Deserializer, errorHandler Deserializer) (*ResponseMeta, error) {
+	res, err := hr.Fetch()
+	meta := NewResponseMeta(res)
 
 	if err != nil {
 		return meta, exception.Wrap(err)
@@ -807,10 +685,10 @@ func (hr *HTTPRequest) deserializeWithError(okHandler Deserializer, errorHandler
 	return meta, exception.Wrap(err)
 }
 
-func (hr *HTTPRequest) logRequest() {
+func (hr *Request) logRequest() {
 	hr.requestStart = time.Now().UTC()
 
-	meta := hr.AsRequestMeta()
+	meta := hr.Meta()
 	if hr.outgoingRequestHandler != nil {
 		hr.outgoingRequestHandler(meta)
 	}
@@ -820,16 +698,16 @@ func (hr *HTTPRequest) logRequest() {
 	}
 }
 
-func (hr *HTTPRequest) logResponse(resMeta *HTTPResponseMeta, responseBody []byte, state interface{}) {
+func (hr *Request) logResponse(resMeta *ResponseMeta, responseBody []byte, state interface{}) {
 	if hr.statefulIncomingResponseHandler != nil {
-		hr.statefulIncomingResponseHandler(hr.AsRequestMeta(), resMeta, responseBody, state)
+		hr.statefulIncomingResponseHandler(hr.Meta(), resMeta, responseBody, state)
 	}
 	if hr.incomingResponseHandler != nil {
-		hr.incomingResponseHandler(hr.AsRequestMeta(), resMeta, responseBody)
+		hr.incomingResponseHandler(hr.Meta(), resMeta, responseBody)
 	}
 
 	if hr.logger != nil {
-		hr.logger.OnEvent(EventResponse, hr.AsRequestMeta(), resMeta, responseBody, state)
+		hr.logger.OnEvent(EventResponse, hr.Meta(), resMeta, responseBody, state)
 	}
 }
 

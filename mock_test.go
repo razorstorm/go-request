@@ -14,9 +14,9 @@ type mockObject struct {
 	DeploymentID int      `json:"deployment_id" xml:"-"`
 }
 
-func testServiceRequest(t *testing.T, additionalTests ...func(*HTTPRequest)) {
+func testServiceRequest(t *testing.T, additionalTests ...func(*Request)) {
 	assert := assert.New(t)
-	sr := NewHTTPRequest().
+	sr := New().
 		WithMockedResponse(MockedResponseInjector).
 		AsDelete().
 		AsPatch().
@@ -37,7 +37,7 @@ func testServiceRequest(t *testing.T, additionalTests ...func(*HTTPRequest)) {
 	assert.Equal("localhost:5001", sr.Host)
 	assert.Equal("GET", sr.Verb)
 
-	req, err := sr.CreateHTTPRequest()
+	req, err := sr.Request()
 	assert.Nil(err)
 	assert.NotNil(req)
 
@@ -46,10 +46,10 @@ func testServiceRequest(t *testing.T, additionalTests ...func(*HTTPRequest)) {
 	}
 }
 
-func testForID(id int, assert *assert.Assertions) func(sr *HTTPRequest) {
-	return func(sr *HTTPRequest) {
+func testForID(id int, assert *assert.Assertions) func(sr *Request) {
+	return func(sr *Request) {
 		res := mockObject{}
-		err := sr.FetchJSONToObject(&res)
+		err := sr.JSON(&res)
 		assert.Nil(err)
 		assert.Equal(id, res.ID)
 	}
