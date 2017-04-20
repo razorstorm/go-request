@@ -555,6 +555,11 @@ func (hr *Request) JSONWithErrorHandler(successObject interface{}, errorObject i
 	return hr.deserializeWithError(newJSONDeserializer(successObject), newJSONDeserializer(errorObject))
 }
 
+// JSONError unmarshals the response as json to an object if the meta indiciates an error.
+func (hr *Request) JSONError(errorObject interface{}) (*ResponseMeta, error) {
+	return hr.deserializeWithError(nil, newJSONDeserializer(errorObject))
+}
+
 // XML unmarshals the response as xml to an object with metadata.
 func (hr *Request) XML(destination interface{}) error {
 	_, err := hr.deserialize(newXMLDeserializer(destination))
