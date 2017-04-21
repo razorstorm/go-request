@@ -2,6 +2,7 @@ package request
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -19,7 +20,7 @@ type MockedResponse struct {
 }
 
 // MockedResponseGenerator is a function that returns a mocked response.
-type MockedResponseGenerator func() MockedResponse
+type MockedResponseGenerator func(io.ReadCloser) MockedResponse
 
 var (
 	isMocked  bool
@@ -28,14 +29,14 @@ var (
 )
 
 // MockedResponseInjector injects the mocked response into the request response.
-func MockedResponseInjector(verb string, workingURL *url.URL) (bool, *ResponseMeta, []byte, error) {
+func MockedResponseInjector(verb string, workingURL *url.URL, body io.ReadCloser) (bool, *ResponseMeta, []byte, error) {
 	if isMocked {
 		mocksLock.Lock()
 		storedURL := fmt.Sprintf("%s_%s", verb, workingURL.String())
-		mockResponseHandler, ok := mocks[storedURL]
+		mockResponseGenerator, ok := mocks[storedURL]
 		mocksLock.Unlock()
 		if ok {
-			mockResponse := mockResponseHandler()
+			mockResponse := mockResponseGenerator(body)
 			meta := &ResponseMeta{}
 			meta.StatusCode = mockResponse.StatusCode
 			meta.ContentLength = int64(len(mockResponse.ResponseBody))
@@ -67,7 +68,7 @@ func MockResponseUnsafe(verb string, url string, gen MockedResponseGenerator) {
 
 // MockResponseFromBinary mocks a service request response from a set of binary responses.
 func MockResponseFromBinary(verb string, url string, statusCode int, responseBody []byte) {
-	MockResponse(verb, url, func() MockedResponse {
+	MockResponse(verb, url, func(io.ReadCloser) MockedResponse {
 		return MockedResponse{
 			StatusCode:   statusCode,
 			ResponseBody: responseBody,
@@ -77,7 +78,7 @@ func MockResponseFromBinary(verb string, url string, statusCode int, responseBod
 
 // MockResponseFromBinaryUnsafe mocks a service request response from a set of binary responses without locking.
 func MockResponseFromBinaryUnsafe(verb string, url string, statusCode int, responseBody []byte) {
-	MockResponseUnsafe(verb, url, func() MockedResponse {
+	MockResponseUnsafe(verb, url, func(io.ReadCloser) MockedResponse {
 		return MockedResponse{
 			StatusCode:   statusCode,
 			ResponseBody: responseBody,
@@ -105,8 +106,8 @@ func MockResponseFromFileUnsafe(verb string, url string, statusCode int, respons
 	MockResponseUnsafe(verb, url, readFile(statusCode, responseFilePath))
 }
 
-func readFile(statusCode int, filePath string) func() MockedResponse {
-	return func() MockedResponse {
+func readFile(statusCode int, filePath string) MockedResponseGenerator {
+	return func(io.ReadCloser) MockedResponse {
 		f, err := os.Open(filePath)
 		if err != nil {
 			return MockedResponse{
@@ -133,7 +134,7 @@ func readFile(statusCode int, filePath string) func() MockedResponse {
 
 // MockError mocks a service request error.
 func MockError(verb string, url string) {
-	MockResponse(verb, url, func() MockedResponse {
+	MockResponse(verb, url, func(io.ReadCloser) MockedResponse {
 		return MockedResponse{
 			StatusCode: http.StatusInternalServerError,
 			Error:      exception.New("Error! This is from request#MockError. If you don't want an error don't mock it."),
@@ -143,7 +144,7 @@ func MockError(verb string, url string) {
 
 // MockErrorUnsafe mocks a service request error without locking.
 func MockErrorUnsafe(verb string, url string) {
-	MockResponseUnsafe(verb, url, func() MockedResponse {
+	MockResponseUnsafe(verb, url, func(io.ReadCloser) MockedResponse {
 		return MockedResponse{
 			StatusCode: http.StatusInternalServerError,
 			Error:      exception.New("Error! This is from request#MockError. If you don't want an error don't mock it."),

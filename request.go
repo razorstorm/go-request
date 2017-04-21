@@ -435,7 +435,7 @@ func (hr *Request) Fetch() (*http.Response, error) {
 	hr.logRequest()
 
 	if hr.mockHandler != nil {
-		didMockResponse, mockedMeta, mockedResponse, mockedResponseErr := hr.mockHandler(hr.Verb, req.URL)
+		didMockResponse, mockedMeta, mockedResponse, mockedResponseErr := hr.mockHandler(hr.Verb, req.URL, ioutil.NopCloser(bytes.NewReader(nil)))
 		if didMockResponse {
 			buff := bytes.NewBuffer(mockedResponse)
 			res := http.Response{}

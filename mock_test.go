@@ -2,6 +2,7 @@ package request
 
 import (
 	"encoding/xml"
+	"io"
 	"testing"
 
 	assert "github.com/blendlabs/go-assert"
@@ -67,7 +68,7 @@ func TestFileServiceRequestScheduler(t *testing.T) {
 	MockResponse(
 		"GET",
 		"http://localhost:5001/api/v1/borrowers/2?foo=bar&moobar=zoobar",
-		func() MockedResponse {
+		func(io.ReadCloser) MockedResponse {
 			r := res[i]
 			i++
 			return MockedResponse{
