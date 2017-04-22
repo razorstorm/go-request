@@ -99,7 +99,7 @@ type StatefulResponseHandler func(req *Meta, res *ResponseMeta, content []byte, 
 type OutgoingRequestHandler func(req *Meta)
 
 // MockedResponseHandler is a receiver for `WithMockedResponse`.
-type MockedResponseHandler func(verb string, url *url.URL, body io.ReadCloser) (bool, *ResponseMeta, []byte, error)
+type MockedResponseHandler func(*http.Request) (bool, *ResponseMeta, []byte, error)
 
 // Deserializer is a function that does things with the response body.
 type Deserializer func(body []byte) error

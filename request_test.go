@@ -3,12 +3,10 @@ package request
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -330,7 +328,7 @@ func TestMockedRequests(t *testing.T) {
 		assert.True(false, "This shouldnt run in a mocked context.")
 	})
 
-	verifyString, meta, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL, body io.ReadCloser) (bool, *ResponseMeta, []byte, error) {
+	verifyString, meta, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(*http.Request) (bool, *ResponseMeta, []byte, error) {
 		return true, okMeta(), []byte("ok!"), nil
 	}).StringWithMeta()
 
