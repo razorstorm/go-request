@@ -11,6 +11,7 @@ import (
 var (
 	isMocked bool
 	mocks    = map[uint32]MockedResponseGenerator{}
+	catchAll MockedResponseGenerator
 )
 
 // MockedResponse is the metadata and response body for a response
@@ -44,7 +45,16 @@ func MockedResponseInjector(req *Request) *MockedResponse {
 	if gen, hasGen := mocks[req.Hash()]; hasGen {
 		return ref(gen(req))
 	}
+	if catchAll != nil {
+		return ref(catchAll(req))
+	}
 	return nil
+}
+
+// MockCatchAll sets a "catch all" mock generator.
+func MockCatchAll(generator MockedResponseGenerator) {
+	isMocked = true
+	catchAll = generator
 }
 
 // MockResponse mocks are response with a given generator.
@@ -81,6 +91,7 @@ func MockResponseFromFile(verb string, url string, statusCode int, responseFileP
 // ClearMockedResponses clears any mocked responses that have been set up for the test.
 func ClearMockedResponses() {
 	isMocked = false
+	catchAll = nil
 	mocks = map[uint32]MockedResponseGenerator{}
 }
 
