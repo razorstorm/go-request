@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -329,8 +328,8 @@ func TestMockedRequests(t *testing.T) {
 		assert.True(false, "This shouldnt run in a mocked context.")
 	})
 
-	verifyString, meta, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).WithMockedResponse(func(verb string, url *url.URL) (bool, *ResponseMeta, []byte, error) {
-		return true, okMeta(), []byte("ok!"), nil
+	verifyString, meta, err := New().AsPut().WithPostBody([]byte("foobar")).WithURL(ts.URL).WithMockProvider(func(_ *Request) *MockedResponse {
+		return &MockedResponse{Meta: *okMeta(), Res: []byte("ok!")}
 	}).StringWithMeta()
 
 	assert.Nil(err)

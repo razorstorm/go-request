@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/ioutil"
 	"net"
@@ -18,6 +19,19 @@ import (
 	"github.com/blendlabs/go-util"
 )
 
+// Get returns a new get request.
+func Get(url string) *Request {
+	return New().AsGet().WithURL(url)
+}
+
+// Post returns a new post request with an optional body.
+func Post(url string, body []byte) *Request {
+	if len(body) > 0 {
+		return New().AsPost().WithURL(url).WithPostBody(body)
+	}
+	return New().AsPost().WithURL(url)
+}
+
 // New returns a new HTTPRequest instance.
 func New() *Request {
 	return &Request{
@@ -29,24 +43,33 @@ func New() *Request {
 
 // Request makes http requests.
 type Request struct {
-	Scheme              string
-	Host                string
-	Path                string
-	QueryString         url.Values
-	Header              http.Header
-	PostData            url.Values
-	Cookies             []*http.Cookie
-	BasicAuthUsername   string
-	BasicAuthPassword   string
-	Verb                string
-	ContentType         string
-	Timeout             time.Duration
-	TLSCertPath         string
-	TLSKeyPath          string
-	SkipTLSVerification bool
-	Body                []byte
-	KeepAlive           bool
-	Label               string
+	Verb string
+
+	Scheme string
+	Host   string
+	Path   string
+
+	QueryString url.Values
+
+	Cookies []*http.Cookie
+
+	Header            http.Header
+	BasicAuthUsername string
+	BasicAuthPassword string
+
+	ContentType string
+	PostData    url.Values
+	Body        []byte
+
+	Timeout time.Duration
+
+	TLSClientCertPath string
+	TLSClientKeyPath  string
+	TLSVerify         bool
+
+	KeepAlive        bool
+	KeepAliveTimeout time.Duration
+	Label            string
 
 	logger         *logger.Agent
 	state          interface{}
@@ -61,7 +84,7 @@ type Request struct {
 	incomingResponseHandler         ResponseHandler
 	statefulIncomingResponseHandler StatefulResponseHandler
 	outgoingRequestHandler          OutgoingRequestHandler
-	mockHandler                     MockedResponseHandler
+	mockProvider                    MockedResponseProvider
 }
 
 // OnResponse configures an event receiver.
@@ -100,15 +123,15 @@ func (hr *Request) WithLabel(label string) *Request {
 	return hr
 }
 
-// ShouldSkipTLSVerification skips the bad certificate checking on TLS requests.
-func (hr *Request) ShouldSkipTLSVerification() *Request {
-	hr.SkipTLSVerification = true
+// WithVerifyTLS skips the bad certificate checking on TLS requests.
+func (hr *Request) WithVerifyTLS(shouldVerify bool) *Request {
+	hr.TLSVerify = shouldVerify
 	return hr
 }
 
-// WithMockedResponse mocks a request response.
-func (hr *Request) WithMockedResponse(hook MockedResponseHandler) *Request {
-	hr.mockHandler = hook
+// WithMockProvider mocks a request response.
+func (hr *Request) WithMockProvider(provider MockedResponseProvider) *Request {
+	hr.mockProvider = provider
 	return hr
 }
 
@@ -133,6 +156,12 @@ func (hr *Request) WithTransport(transport *http.Transport) *Request {
 func (hr *Request) WithKeepAlives() *Request {
 	hr.KeepAlive = true
 	hr = hr.WithHeader("Connection", "keep-alive")
+	return hr
+}
+
+// WithKeepAliveTimeout sets a keep alive timeout for the requests transport.
+func (hr *Request) WithKeepAliveTimeout(timeout time.Duration) *Request {
+	hr.KeepAliveTimeout = timeout
 	return hr
 }
 
@@ -261,15 +290,15 @@ func (hr *Request) WithTimeout(timeout time.Duration) *Request {
 	return hr
 }
 
-// WithTLSCert sets a tls cert on the transport for the request.
-func (hr *Request) WithTLSCert(certPath string) *Request {
-	hr.TLSCertPath = certPath
+// WithClientTLSCert sets a tls cert on the transport for the request.
+func (hr *Request) WithClientTLSCert(certPath string) *Request {
+	hr.TLSClientCertPath = certPath
 	return hr
 }
 
-// WithTLSKey sets a tls key on the transport for the request.
-func (hr *Request) WithTLSKey(keyPath string) *Request {
-	hr.TLSKeyPath = keyPath
+// WithClientTLSKey sets a tls key on the transport for the request.
+func (hr *Request) WithClientTLSKey(keyPath string) *Request {
+	hr.TLSClientKeyPath = keyPath
 	return hr
 }
 
@@ -316,6 +345,8 @@ func (hr *Request) AsOptions() *Request {
 }
 
 // WithResponseBuffer sets the response buffer for the request (if you want to re-use one).
+// An example is if you're constantly pinging an endpoint with a similarly sized response,
+// You can just re-use a buffer for reading the response.
 func (hr *Request) WithResponseBuffer(buffer Buffer) *Request {
 	hr.responseBuffer = buffer
 	return hr
@@ -425,8 +456,8 @@ func (hr *Request) Request() (*http.Request, error) {
 	return req, nil
 }
 
-// Fetch makes the actual request but returns the underlying http.Response object.
-func (hr *Request) Fetch() (*http.Response, error) {
+// Response makes the actual request but returns the underlying http.Response object.
+func (hr *Request) Response() (*http.Response, error) {
 	req, err := hr.Request()
 	if err != nil {
 		return nil, err
@@ -434,17 +465,13 @@ func (hr *Request) Fetch() (*http.Response, error) {
 
 	hr.logRequest()
 
-	if hr.mockHandler != nil {
-		didMockResponse, mockedMeta, mockedResponse, mockedResponseErr := hr.mockHandler(hr.Verb, req.URL)
-		if didMockResponse {
-			buff := bytes.NewBuffer(mockedResponse)
-			res := http.Response{}
-			buffLen := buff.Len()
-			res.Body = ioutil.NopCloser(buff)
-			res.ContentLength = int64(buffLen)
-			res.Header = mockedMeta.Headers
-			res.StatusCode = mockedMeta.StatusCode
-			return &res, exception.Wrap(mockedResponseErr)
+	if hr.mockProvider != nil {
+		mockedRes := hr.mockProvider(hr)
+		if mockedRes != nil {
+			if mockedRes.Err != nil {
+				return nil, exception.Wrap(mockedRes.Err)
+			}
+			return mockedRes.Response(), nil
 		}
 	}
 
@@ -473,7 +500,7 @@ func (hr *Request) Execute() error {
 
 // ExecuteWithMeta makes the request and returns the meta of the response.
 func (hr *Request) ExecuteWithMeta() (*ResponseMeta, error) {
-	res, err := hr.Fetch()
+	res, err := hr.Response()
 	if err != nil {
 		return nil, exception.Wrap(err)
 	}
@@ -504,7 +531,7 @@ func (hr *Request) ExecuteWithMeta() (*ResponseMeta, error) {
 
 // BytesWithMeta fetches the response as bytes with meta.
 func (hr *Request) BytesWithMeta() ([]byte, *ResponseMeta, error) {
-	res, err := hr.Fetch()
+	res, err := hr.Response()
 	resMeta := NewResponseMeta(res)
 	if err != nil {
 		return nil, resMeta, exception.Wrap(err)
@@ -585,10 +612,10 @@ func (hr *Request) Deserialized(deserialize Deserializer) (*ResponseMeta, error)
 }
 
 func (hr *Request) requiresCustomTransport() bool {
-	return (!isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath)) ||
+	return (!isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath)) ||
 		hr.transport != nil ||
 		hr.createTransportHandler != nil ||
-		hr.SkipTLSVerification
+		hr.TLSVerify
 }
 
 func (hr *Request) getTransport() (*http.Transport, error) {
@@ -609,28 +636,30 @@ func (hr *Request) Transport() (*http.Transport, error) {
 	if hr.Timeout != time.Duration(0) {
 		dialer.Timeout = hr.Timeout
 	}
+
 	if hr.KeepAlive {
-		dialer.KeepAlive = 30 * time.Second
+		if hr.KeepAliveTimeout != time.Duration(0) {
+			dialer.KeepAlive = hr.KeepAliveTimeout
+		} else {
+			dialer.KeepAlive = 30 * time.Second
+		}
 	}
 
-	loggedDialer := func(network, address string) (net.Conn, error) {
-		return dialer.Dial(network, address)
-	}
-	transport.Dial = loggedDialer
+	transport.Dial = dialer.Dial
 
-	if !isEmpty(hr.TLSCertPath) && !isEmpty(hr.TLSKeyPath) {
-		cert, err := tls.LoadX509KeyPair(hr.TLSCertPath, hr.TLSKeyPath)
+	if !isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath) {
+		cert, err := tls.LoadX509KeyPair(hr.TLSClientCertPath, hr.TLSClientKeyPath)
 		if err != nil {
 			return nil, exception.Wrap(err)
 		}
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: hr.SkipTLSVerification,
+			InsecureSkipVerify: !hr.TLSVerify,
 			Certificates:       []tls.Certificate{cert},
 		}
 		transport.TLSClientConfig = tlsConfig
 	} else {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: hr.SkipTLSVerification,
+			InsecureSkipVerify: !hr.TLSVerify,
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
@@ -643,7 +672,7 @@ func (hr *Request) Transport() (*http.Transport, error) {
 }
 
 func (hr *Request) deserialize(handler Deserializer) (*ResponseMeta, error) {
-	res, err := hr.Fetch()
+	res, err := hr.Response()
 	meta := NewResponseMeta(res)
 
 	if err != nil {
@@ -665,7 +694,7 @@ func (hr *Request) deserialize(handler Deserializer) (*ResponseMeta, error) {
 }
 
 func (hr *Request) deserializeWithError(okHandler Deserializer, errorHandler Deserializer) (*ResponseMeta, error) {
-	res, err := hr.Fetch()
+	res, err := hr.Response()
 	meta := NewResponseMeta(res)
 
 	if err != nil {
@@ -714,6 +743,41 @@ func (hr *Request) logResponse(resMeta *ResponseMeta, responseBody []byte, state
 	if hr.logger != nil {
 		hr.logger.OnEvent(EventResponse, hr.Meta(), resMeta, responseBody, state)
 	}
+}
+
+// Hash / Mock Utility Functions
+
+// Hash returns a hashcode for a request.
+func (hr *Request) Hash() uint32 {
+	if hr == nil {
+		return 0
+	}
+
+	buffer := bytes.NewBuffer(nil)
+	buffer.WriteString(hr.Verb)
+	buffer.WriteRune('|')
+	buffer.WriteString(hr.URL().String())
+
+	h := fnv.New32a()
+	h.Write(buffer.Bytes())
+	return h.Sum32()
+}
+
+// Equals returns if a request equals another request.
+func (hr *Request) Equals(other *Request) bool {
+	if other == nil {
+		return false
+	}
+
+	if hr.Verb != other.Verb {
+		return false
+	}
+
+	if hr.URL().String() != other.URL().String() {
+		return false
+	}
+
+	return true
 }
 
 //--------------------------------------------------------------------------------

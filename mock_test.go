@@ -17,7 +17,7 @@ type mockObject struct {
 func testServiceRequest(t *testing.T, additionalTests ...func(*Request)) {
 	assert := assert.New(t)
 	sr := New().
-		WithMockedResponse(MockedResponseInjector).
+		WithMockProvider(MockedResponseInjector).
 		AsDelete().
 		AsPatch().
 		AsPut().
@@ -65,14 +65,13 @@ func TestFileServiceRequestScheduler(t *testing.T) {
 	}
 	i := 0
 	MockResponse(
-		"GET",
-		"http://localhost:5001/api/v1/borrowers/2?foo=bar&moobar=zoobar",
-		func() MockedResponse {
+		New().WithVerb("GET").WithURL("http://localhost:5001/api/v1/borrowers/2?foo=bar&moobar=zoobar"),
+		func(_ *Request) MockedResponse {
 			r := res[i]
 			i++
 			return MockedResponse{
-				ResponseBody: []byte(r),
-				StatusCode:   200,
+				Res:  []byte(r),
+				Meta: ResponseMeta{StatusCode: 200},
 			}
 		},
 	)

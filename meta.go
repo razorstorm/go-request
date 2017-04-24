@@ -98,8 +98,8 @@ type StatefulResponseHandler func(req *Meta, res *ResponseMeta, content []byte, 
 // OutgoingRequestHandler is a receiver for `OnRequest`.
 type OutgoingRequestHandler func(req *Meta)
 
-// MockedResponseHandler is a receiver for `WithMockedResponse`.
-type MockedResponseHandler func(verb string, url *url.URL) (bool, *ResponseMeta, []byte, error)
+// MockedResponseProvider is a mocked response provider.
+type MockedResponseProvider func(*Request) *MockedResponse
 
 // Deserializer is a function that does things with the response body.
 type Deserializer func(body []byte) error
