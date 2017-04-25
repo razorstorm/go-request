@@ -69,7 +69,7 @@ func MockResponseFromBinary(req *Request, statusCode int, responseBody []byte) {
 	MockResponse(req, func(_ *Request) MockedResponse {
 		return MockedResponse{
 			Meta: ResponseMeta{
-				StatusCode:    http.StatusOK,
+				StatusCode:    statusCode,
 				ContentLength: int64(len(responseBody)),
 				CompleteTime:  time.Now().UTC(),
 			},
