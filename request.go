@@ -468,10 +468,7 @@ func (hr *Request) Response() (*http.Response, error) {
 	if hr.mockProvider != nil {
 		mockedRes := hr.mockProvider(hr)
 		if mockedRes != nil {
-			if mockedRes.Err != nil {
-				return nil, exception.Wrap(mockedRes.Err)
-			}
-			return mockedRes.Response(), nil
+			return mockedRes.Response(), mockedRes.Err
 		}
 	}
 
