@@ -65,7 +65,7 @@ type Request struct {
 
 	TLSClientCertPath string
 	TLSClientKeyPath  string
-	TLSVerify         bool
+	TLSSkipVerify     bool
 
 	KeepAlive        bool
 	KeepAliveTimeout time.Duration
@@ -125,7 +125,7 @@ func (hr *Request) WithLabel(label string) *Request {
 
 // WithVerifyTLS skips the bad certificate checking on TLS requests.
 func (hr *Request) WithVerifyTLS(shouldVerify bool) *Request {
-	hr.TLSVerify = shouldVerify
+	hr.TLSSkipVerify = !shouldVerify
 	return hr
 }
 
@@ -612,7 +612,7 @@ func (hr *Request) requiresCustomTransport() bool {
 	return (!isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath)) ||
 		hr.transport != nil ||
 		hr.createTransportHandler != nil ||
-		hr.TLSVerify
+		hr.TLSSkipVerify
 }
 
 func (hr *Request) getTransport() (*http.Transport, error) {
@@ -650,13 +650,13 @@ func (hr *Request) Transport() (*http.Transport, error) {
 			return nil, exception.Wrap(err)
 		}
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: !hr.TLSVerify,
+			InsecureSkipVerify: hr.TLSSkipVerify,
 			Certificates:       []tls.Certificate{cert},
 		}
 		transport.TLSClientConfig = tlsConfig
 	} else {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: !hr.TLSVerify,
+			InsecureSkipVerify: hr.TLSSkipVerify,
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
