@@ -2,6 +2,7 @@ package request
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -48,7 +49,7 @@ func MockedResponseInjector(req *Request) *MockedResponse {
 	if catchAll != nil {
 		return ref(catchAll(req))
 	}
-	return nil
+	panic(fmt.Sprintf("no mock registered for %s %s", req.Verb, req.URL().String()))
 }
 
 // MockCatchAll sets a "catch all" mock generator.
