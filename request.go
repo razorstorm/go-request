@@ -293,25 +293,25 @@ func (hr *Request) WithTimeout(timeout time.Duration) *Request {
 }
 
 // WithClientTLSCert sets a tls cert on the transport for the request.
-func (hr *Request) WithClientTLSCert(certPath string) *Request {
+func (hr *Request) WithClientTLSCertPath(certPath string) *Request {
 	hr.TLSClientCertPath = certPath
 	return hr
 }
 
 // WithClientTLSCert sets a tls cert on the transport for the request.
-func (hr *Request) WithClientTLSCertRaw(cert []byte) *Request {
+func (hr *Request) WithClientTLSCert(cert []byte) *Request {
 	hr.TLSClientCert = cert
 	return hr
 }
 
 // WithClientTLSKey sets a tls key on the transport for the request.
-func (hr *Request) WithClientTLSKey(keyPath string) *Request {
+func (hr *Request) WithClientTLSKeyPath(keyPath string) *Request {
 	hr.TLSClientKeyPath = keyPath
 	return hr
 }
 
 // WithClientTLSKey sets a tls key on the transport for the request.
-func (hr *Request) WithClientTLSKeyRaw(key []byte) *Request {
+func (hr *Request) WithClientTLSKey(key []byte) *Request {
 	hr.TLSClientKey = key
 	return hr
 }
