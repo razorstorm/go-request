@@ -65,6 +65,8 @@ type Request struct {
 
 	TLSClientCertPath string
 	TLSClientKeyPath  string
+	TLSClientCert     string
+	TLSClientKey      string
 	TLSSkipVerify     bool
 
 	KeepAlive        bool
@@ -296,9 +298,21 @@ func (hr *Request) WithClientTLSCert(certPath string) *Request {
 	return hr
 }
 
+// WithClientTLSCert sets a tls cert on the transport for the request.
+func (hr *Request) WithClientTLSCertRaw(certPath string) *Request {
+	hr.TLSClientCert = certPath
+	return hr
+}
+
 // WithClientTLSKey sets a tls key on the transport for the request.
 func (hr *Request) WithClientTLSKey(keyPath string) *Request {
 	hr.TLSClientKeyPath = keyPath
+	return hr
+}
+
+// WithClientTLSKey sets a tls key on the transport for the request.
+func (hr *Request) WithClientTLSKeyRaw(keyPath string) *Request {
+	hr.TLSClientKey = keyPath
 	return hr
 }
 
@@ -610,6 +624,7 @@ func (hr *Request) Deserialized(deserialize Deserializer) (*ResponseMeta, error)
 
 func (hr *Request) requiresCustomTransport() bool {
 	return (!isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath)) ||
+		(!isEmpty(hr.TLSClientCert) && !isEmpty(hr.TLSClientKey)) ||
 		hr.transport != nil ||
 		hr.createTransportHandler != nil ||
 		hr.TLSSkipVerify
@@ -644,8 +659,17 @@ func (hr *Request) Transport() (*http.Transport, error) {
 
 	transport.Dial = dialer.Dial
 
-	if !isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath) {
-		cert, err := tls.LoadX509KeyPair(hr.TLSClientCertPath, hr.TLSClientKeyPath)
+	if (!isEmpty(hr.TLSClientCertPath) && !isEmpty(hr.TLSClientKeyPath)) || !isEmpty(hr.TLSClientCert) && !isEmpty(hr.TLSClientKey) {
+		var cert tls.Certificate
+		var err error
+
+		if !isEmpty(hr.TLSClientCertPath) {
+			// If we are using cert paths
+			cert, err = tls.LoadX509KeyPair(hr.TLSClientCertPath, hr.TLSClientKeyPath)
+		} else {
+			// If we are using raw certs
+			cert, err = tls.X509KeyPair([]byte(hr.TLSClientCert), []byte(hr.TLSClientKey))
+		}
 		if err != nil {
 			return nil, exception.Wrap(err)
 		}
